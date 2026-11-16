@@ -16,16 +16,16 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Close cleanly (mpv and GL context torn down)
 
 ## Phase 2 — Core playback UI
-- [ ] Seek bar (click/drag, hover time tooltip, chapter marks)
-- [ ] Toolbar: play/pause, stop, previous/next, frame step, volume slider, mute
-- [ ] Status bar: state, elapsed / total time
-- [ ] Menu bar: File / View / Play / Navigate / Favorites / Help, with the same structure as MPC
-- [ ] Open File, Quick Open, Open Directory, Open URL dialogs
-- [ ] Drag and drop files, folders and subtitles
-- [ ] Fullscreen (double-click, keyboard); hide controls and cursor in fullscreen
-- [ ] View presets: Minimal / Compact / Normal; toggle Caption & Menu, Seek Bar, Controls, Info, Statistics, Status
-- [ ] Stays on top: Default / Always / While Playing / While Playing Video
-- [ ] Logo shown when idle
+- [x] Seek bar (click/drag, hover time tooltip, chapter marks)
+- [x] Toolbar: play/pause, stop, previous/next, frame step, volume slider, mute
+- [x] Status bar: state, elapsed / total time
+- [x] Menu bar: File / View / Play / Navigate / Help (Favorites comes in phase 8)
+- [x] Open File, Quick Open, Open Directory, Open URL dialogs
+- [x] Drag and drop files, folders and subtitles
+- [x] Fullscreen (double-click, keyboard); hide controls and cursor in fullscreen
+- [x] View presets: Minimal / Compact / Normal; toggle Caption & Menu, Seek Bar, Controls, Info, Statistics, Status
+- [ ] Stays on top: Default / Always / While Playing / While Playing Video (GTK4 has no API for this on Wayland; X11 only, or drop it)
+- [x] Logo shown when idle
 
 ## Phase 3 — Command system
 - [ ] Command table ported from `wmcmd` in `AppSettings.cpp` (IDs, names, default keys)
