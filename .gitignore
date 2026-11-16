@@ -1,0 +1,8 @@
+# Original MPC-HC source, kept locally as a reference only (see README)
+/mpc-hc-develop/
+
+# Rust build output
+target/
+
+# Local Claude Code settings
+.claude/settings.local.json
