@@ -75,17 +75,22 @@ Each phase ends with a build that runs, then stops for review.
 - Moved to phase 9: online subtitle download/upload (needs an HTTPS client crate and an API key)
 
 ## Phase 7 — Video
-- [ ] Zoom 50/100/200%, auto fit, auto fit (larger only)
-- [ ] Video frame: half/normal/double, stretch, touch window from inside/outside
-- [ ] Aspect ratio: default, 4:3, 5:4, 16:9, 2.35:1, 1.85:1, square pixels
-- [ ] Pan & scan: size, width, height, move, center, reset, presets
-- [ ] Rotate/flip
-- [ ] Shaders: port `res/shaders/*.hlsl` to GLSL; pre-/post-resize lists; shader editor
-- [ ] Color management (ICC), output range 0-255 / 16-235
-- [ ] VSync / display sync / interpolation options
-- [ ] OSD messages; statistics overlay; show current time / file name
-- [ ] Save Image, Save Thumbnails, copy frame to clipboard
-- [ ] Deinterlace toggle
+- [x] Zoom 50/100/200%, auto fit, auto fit (larger only); auto-zoom on open (Options > Playback)
+- [x] Video frame: half/normal/double, stretch, touch window from inside/outside, zoom 1/2, switch zoom
+- [x] Aspect ratio: default, 4:3, 5:4, 16:9, 2.35:1, 1.85:1, square pixels; next aspect ratio
+- [x] Pan & scan: size, width, height, move (8 directions), center, reset, presets (MPC's three defaults)
+- [x] Rotate 90° both ways; flip / mirror (MPC's X/Y "rotate -"). MPC's 3D tilt (X/Y "rotate +") has no
+      mpv equivalent
+- [x] Shaders: all 22 of `res/shaders/external/*.hlsl` ported to mpv GLSL; pre-/post-resize lists
+      (Options > Shaders); shader editor with mpv's compile errors; Play > Shaders > Enabled. Shader
+      presets not done yet
+- [x] Color management (display ICC profile, rendering intent), output range 0-255 / 16-235;
+      hardware decoding (Options > Output)
+- [x] Sync video to display (display-resample) and frame interpolation (Options > Sync, `V`)
+- [x] OSD messages (mpv's OSD; Show OSD, OSD font); statistics overlay (Ctrl+J); show current time
+      (Ctrl+I) / file name (N)
+- [x] Save Image, Save Image (auto, F5), Save Thumbnails, copy image to clipboard
+- [x] Deinterlace toggle (View > Video Frame)
 
 ## Phase 8 — Discs, devices, info
 - [ ] Open DVD/BD; DVD menus (title/root/subtitle/audio/angle/chapter); navigation; remember DVD position

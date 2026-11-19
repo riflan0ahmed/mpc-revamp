@@ -5,10 +5,12 @@ mod mpris;
 mod options;
 mod playlist;
 mod playlistbar;
+mod shaders;
 mod subresync;
 mod subtitles;
 mod ui;
 mod video;
+mod view;
 
 use gtk4::{self as gtk, gio, glib, prelude::*};
 use libmpv2::Mpv;
@@ -70,6 +72,13 @@ fn main() -> glib::ExitCode {
         })
         .expect("failed to init mpv"),
     ));
+
+    // Errors arrive as events too, so the shader editor can show compile errors.
+    unsafe extern "C" {
+        fn mpv_request_log_messages(ctx: *mut std::ffi::c_void, min_level: *const std::ffi::c_char) -> std::ffi::c_int;
+    }
+    // SAFETY: the handle is valid for the whole run (mpv is leaked above).
+    unsafe { mpv_request_log_messages(mpv.ctx.as_ptr().cast(), c"error".as_ptr()) };
 
     let app = gtk::Application::builder()
         .application_id("io.github.mpcrs.Player")

@@ -4,13 +4,15 @@
 use crate::{
     cmdline::CmdLine,
     commands::{self, Binding, COMMANDS, Click, Media, Mouse},
-    config::{self, AfterPlayback, Config, History, RepeatMode, TitleBar},
+    config::{self, AfterPlayback, Config, History, RepeatMode, TitleBar, VideoFrame, Zoom},
     mpris::Mpris,
     options,
     playlist::{self, Entry, Playlist},
     playlistbar::{self, Bar, Request},
+    shaders,
     subresync::{self, Subresync},
     video,
+    view::{self, PanScan},
 };
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
 use libmpv2::{GetData, Mpv};
@@ -78,6 +80,108 @@ struct Ui {
     /// Play > Audio / Subtitle / Video Track, rebuilt when the track list changes.
     track_menus: [gio::Menu; 3],
     tracks_sig: RefCell<String>,
+    pan_scan: Cell<PanScan>,
+    /// The file the window was last auto-zoomed for (Options > Playback "Auto-zoom").
+    zoomed_for: RefCell<Option<String>>,
+    /// Play > Shaders > Enabled (for this run, like MPC's shader toggle).
+    shaders_on: Cell<bool>,
+    /// Recent mpv error messages (the shader editor shows compile errors from here).
+    mpv_errors: RefCell<Vec<String>>,
+}
+
+const ASPECTS: [(&str, &str); 7] = [
+    ("_Default (DAR)", "no"),
+    ("_4:3", "4:3"),
+    ("_5:4", "5:4"),
+    ("_16:9", "16:9"),
+    ("_235:100", "2.35"),
+    ("1_85:100", "1.85"),
+    ("Assume _square pixels (SAR)", "0"),
+];
+const FRAMES: [(&str, &str, VideoFrame); 8] = [
+    ("_Half Size", "view-vf-half", VideoFrame::Half),
+    ("_Normal Size", "view-vf-normal", VideoFrame::Normal),
+    ("_Double Size", "view-vf-double", VideoFrame::Double),
+    ("_Stretch To Window", "view-vf-stretch", VideoFrame::Stretch),
+    ("Touch Window From _Inside", "view-vf-frominside", VideoFrame::FromInside),
+    ("Zoom _1", "view-vf-zoom1", VideoFrame::Zoom1),
+    ("Zoom _2", "view-vf-zoom2", VideoFrame::Zoom2),
+    ("Touch Window From _Outside", "view-vf-fromoutside", VideoFrame::FromOutside),
+];
+
+/// Load the shader chain into mpv (Options > Shaders, Play > Shaders > Enabled).
+fn apply_shaders(ui: &Ui) {
+    let (pre, post) = if ui.shaders_on.get() { (ui.cfg.borrow().shaders_pre.clone(), ui.cfg.borrow().shaders_post.clone()) } else { Default::default() };
+    let files: Vec<String> = shaders::materialize(&pre, &post).iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    if let Err(e) = ui.mpv.set_property("glsl-shaders", files.join(":").as_str()) {
+        eprintln!("mpv glsl-shaders: {e}");
+    }
+}
+
+/// Options > Output and Sync, and the OSD.
+fn apply_video(ui: &Ui) {
+    let c = ui.cfg.borrow();
+    // display-resample needs the refresh rate, which the render API can't see by itself.
+    let refresh = ui.win.surface().and_then(|s| WidgetExt::display(&ui.win).monitor_at_surface(&s)).map_or(0.0, |m| m.refresh_rate() as f64 / 1000.0);
+    for (name, value) in [
+        ("hwdec", if c.hwdec { "auto-safe" } else { "no" }.to_string()),
+        ("icc-profile-auto", if c.color_management { "yes" } else { "no" }.into()),
+        ("icc-intent", c.icc_intent.to_string()),
+        ("video-output-levels", if c.output_limited { "limited" } else { "full" }.into()),
+        ("video-sync", if c.sync_to_display { "display-resample" } else { "audio" }.into()),
+        ("interpolation", if c.interpolation && c.sync_to_display { "yes" } else { "no" }.into()),
+        ("display-fps-override", format!("{refresh:.3}")),
+        ("osd-level", if c.show_osd { "1" } else { "0" }.into()),
+        ("osd-font", c.osd_font.clone()),
+        ("osd-font-size", c.osd_font_size.to_string()),
+    ] {
+        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
+            eprintln!("mpv {name}={value}: {e}");
+        }
+    }
+    drop(c);
+    view::apply_frame(ui.mpv, ui.cfg.borrow().video_frame);
+    if let Some(a) = ui.win.lookup_action("video-frame").and_downcast::<gio::SimpleAction>() {
+        let name = FRAMES.iter().find(|f| f.2 == ui.cfg.borrow().video_frame).map_or("", |f| f.1);
+        a.set_state(&name.to_variant());
+    }
+    apply_shaders(ui);
+}
+
+fn set_frame(ui: &Ui, frame: VideoFrame) {
+    ui.cfg.borrow_mut().video_frame = frame;
+    save_config(ui);
+    apply_video(ui);
+    let label = FRAMES.iter().find(|f| f.2 == frame).map_or("", |f| f.0).replace('_', "");
+    osd(ui.mpv, &label);
+}
+
+fn pan_scan(ui: &Ui, f: impl FnOnce(&mut PanScan)) {
+    let mut p = ui.pan_scan.get();
+    f(&mut p);
+    ui.pan_scan.set(p);
+    p.apply(ui.mpv);
+}
+
+/// File > Save Image: the current frame as shown (with subtitles); the format follows the extension.
+fn save_image_dialog(ui: &Rc<Ui>) {
+    let name = format!("{}.{}", snapshot_name(ui), ui.cfg.borrow().snapshot_ext);
+    let mpv = ui.mpv;
+    gtk::FileDialog::builder().title("Save Image").initial_name(name.as_str()).initial_folder(&gio::File::for_path(&ui.cfg.borrow().snapshot_dir)).build().save(
+        Some(&ui.win),
+        gio::Cancellable::NONE,
+        move |res| {
+            if let Some(p) = res.ok().and_then(|f| f.path()) {
+                cmd(mpv, "screenshot-to-file", &[&p.to_string_lossy(), "subtitles"]);
+            }
+        },
+    );
+}
+
+/// "name_hh.mm.ss" like MPC's snapshot names.
+fn snapshot_name(ui: &Ui) -> String {
+    let stem = ui.loaded.borrow().as_deref().and_then(|p| Path::new(p).file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or("snapshot".into());
+    format!("{stem}_{}", hms(prop::<f64>(ui.mpv, "time-pos").unwrap_or(0.0)).replace(':', "."))
 }
 
 const TRACK_KINDS: [(&str, &str, &str); 3] = [("audio", "aid", "audio-track"), ("sub", "sid", "sub-track"), ("video", "vid", "video-track")];
@@ -294,6 +398,7 @@ fn apply_settings(ui: &Ui) {
     ui.pl.borrow_mut().shuffle = cfg.shuffle;
     apply_audio(ui);
     apply_sub_style(ui);
+    apply_video(ui);
     let _ = ui.mpv.set_property("audio-delay", cfg.audio_time_shift_ms as f64 / 1000.0);
     ui.marks.set((-1, -1)); // rebuild (or drop) the chapter marks
     sync_repeat(ui);
@@ -430,8 +535,24 @@ fn play(ui: &Ui, idx: usize) {
     ui.plbar.refresh();
 }
 
+/// Options > Playback "Auto-zoom": size the window to the default zoom once the new video's size is known.
+fn auto_zoom(ui: &Ui) {
+    let loaded = ui.loaded.borrow().clone();
+    if loaded.is_none() || *ui.zoomed_for.borrow() == loaded || prop::<i64>(ui.mpv, "dwidth").is_none() {
+        return;
+    }
+    *ui.zoomed_for.borrow_mut() = loaded;
+    let (on, zoom, fit) = (ui.cfg.borrow().auto_zoom, ui.cfg.borrow().zoom, ui.cfg.borrow().autofit_factor);
+    if on {
+        view::zoom_window(&ui.win, &ui.video, ui.mpv, zoom, fit);
+    }
+}
+
 /// mpv has opened the file: add its subtitles, restore its position, note its duration.
 fn on_loaded(ui: &Ui) {
+    // MPC resets pan & scan for each file.
+    ui.pan_scan.set(PanScan::default());
+    ui.pan_scan.get().apply(ui.mpv);
     let Some(cur) = ui.pl.borrow().current else { return };
     let (subs, audio) = ui.pl.borrow().items.get(cur).map(|e| (e.subs.clone(), e.audio.clone())).unwrap_or_default();
     for s in subs {
@@ -794,6 +915,10 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         subresync: resync,
         track_menus,
         tracks_sig: RefCell::new(String::new()),
+        pan_scan: Cell::new(PanScan::default()),
+        zoomed_for: RefCell::new(None),
+        shaders_on: Cell::new(true),
+        mpv_errors: RefCell::new(Vec::new()),
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
@@ -805,6 +930,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         move |win| {
             save_position(&ui);
             ui.subresync.cleanup();
+            shaders::cleanup();
             // MPC keeps the last volume (and, if asked, the window size) for the next start.
             let mut cfg = ui.cfg.borrow_mut();
             cfg.volume = prop::<f64>(ui.mpv, "volume").map_or(cfg.volume, |v| v.round() as u32);
@@ -943,6 +1069,11 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     relayout(&ui);
     update(&ui);
     win.present();
+    // The monitor (for display-resample's refresh rate) is only known once the window is on screen.
+    win.connect_map({
+        let ui = ui.clone();
+        move |_| apply_video(&ui)
+    });
 }
 
 /// Repeat menu check marks from the config (File and Playlist act as radio items).
@@ -996,6 +1127,13 @@ fn update(ui: &Ui) {
     while let Some(ev) = mpv.wait_event(0.0) {
         match ev {
             Ok(libmpv2::events::Event::FileLoaded) => on_loaded(ui),
+            Ok(libmpv2::events::Event::LogMessage { prefix, text, .. }) => {
+                let mut errors = ui.mpv_errors.borrow_mut();
+                errors.push(format!("[{prefix}] {}", text.trim_end()));
+                let n = errors.len();
+                errors.drain(..n.saturating_sub(50));
+            }
+            Ok(libmpv2::events::Event::VideoReconfig) => auto_zoom(ui),
             // A file that fails to open is skipped, as MPC moves on to the next playlist item.
             Ok(libmpv2::events::Event::EndFile(libmpv2::mpv_end_file_reason::Error)) => {
                 let next = ui.pl.borrow_mut().step(1, false, &mut rand);
@@ -1138,6 +1276,12 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
         m.append_submenu(Some("Recent _Files"), recent);
         m
     });
+    file.append_section(None, &section(&[
+        ("Save _Image...", "win.file-save-image"),
+        ("Save Image (_auto)", "win.file-save-image-auto"),
+        ("Save _Thumbnails...", "win.file-save-thumbnails"),
+        ("Cop_y Image to Clipboard", "win.copy-image"),
+    ]));
     file.append_section(None, &section(&[("_Load Subtitle...", "win.file-subtitles-load"), ("_Save Subtitle...", "win.file-subtitles-save")]));
     file.append_section(None, &section(&[("_Close", "win.file-close-and-restore")]));
     file.append_section(None, &section(&[("E_xit", "win.file-exit")]));
@@ -1158,6 +1302,70 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
         let m = gio::Menu::new();
         m.append_submenu(Some("_Presets"), &presets);
         m.append(Some("F_ull Screen"), Some("win.view-fullscreen"));
+        m.append_submenu(Some("_Zoom"), &section(&[
+            ("_50%", "win.view-zoom-50"),
+            ("_100%", "win.view-zoom-100"),
+            ("_200%", "win.view-zoom-200"),
+            ("Auto _Fit", "win.view-zoom-autofit"),
+            ("Auto Fit (_Larger Only)", "win.view-zoom-autofit-larger"),
+        ]));
+        m
+    });
+    view.append_section(None, &{
+        let m = gio::Menu::new();
+        let renderer = section(&[
+            ("_Display Statistics", "win.view-display-renderer-stats"),
+            ("Display Current T_ime", "win.view-osd-display-time"),
+            ("Show _File Name", "win.view-osd-show-filename"),
+            ("_VSync (sync video to display)", "win.view-vsync"),
+        ]);
+        m.append_submenu(Some("R_enderer Settings"), &renderer);
+        let frame = gio::Menu::new();
+        let modes = gio::Menu::new();
+        for (label, action, _) in FRAMES {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(Some("win.video-frame"), Some(&action.to_variant()));
+            modes.append_item(&item);
+        }
+        frame.append_section(None, &modes);
+        let aspect = gio::Menu::new();
+        for (label, value) in ASPECTS {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(Some("win.aspect"), Some(&value.to_variant()));
+            aspect.append_item(&item);
+        }
+        frame.append_section(None, &{
+            let m = gio::Menu::new();
+            m.append_submenu(Some("Override _Aspect Ratio"), &aspect);
+            m.append(Some("D_einterlace"), Some("win.deinterlace"));
+            m
+        });
+        m.append_submenu(Some("_Video Frame"), &frame);
+        let pns = gio::Menu::new();
+        pns.append_section(None, &section(&[
+            ("_Increase Size", "win.view-incsize"),
+            ("_Decrease Size", "win.view-decsize"),
+            ("I_ncrease Width", "win.view-incwidth"),
+            ("D_ecrease Width", "win.view-decwidth"),
+            ("In_crease Height", "win.view-incheight"),
+            ("Decre_ase Height", "win.view-decheight"),
+        ]));
+        pns.append_section(None, &section(&[
+            ("Move _Right", "win.panscan-moveright"),
+            ("Move _Left", "win.panscan-moveleft"),
+            ("Move _Up", "win.panscan-moveup"),
+            ("Move _Down", "win.panscan-movedown"),
+            ("Cen_ter", "win.panscan-center"),
+        ]));
+        pns.append_section(None, &section(&[
+            ("Rotate _Clockwise", "win.panscan-rotatezm"),
+            ("Rotate Counterc_lockwise", "win.panscan-rotatezp"),
+            ("_Flip Vertically", "win.panscan-rotatexm"),
+            ("_Mirror", "win.panscan-rotateym"),
+        ]));
+        pns.append_section(None, &section(&[("Re_set", "win.view-reset")]));
+        pns.append_section(Some("Presets"), &pns_presets_menu());
+        m.append_submenu(Some("_Pan&Scan"), &pns);
         m
     });
     view.append_section(None, &section(&[("_Options...", "win.view-options")]));
@@ -1185,6 +1393,11 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
     ]));
     play.append_section(None, &{
         let m = gio::Menu::new();
+        m.append_submenu(Some("S_haders"), &section(&[("_Enabled", "win.shaders-enabled"), ("Shader _Editor...", "win.shader-editor")]));
+        m
+    });
+    play.append_section(None, &{
+        let m = gio::Menu::new();
         m.append_submenu(Some("_Audio Track"), &tracks[0]);
         m.append_submenu(Some("Su_btitle Track"), &tracks[1]);
         m.append_submenu(Some("Vide_o Track"), &tracks[2]);
@@ -1200,6 +1413,17 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
     root.append_submenu(Some("_Navigate"), &section(&[("_Previous", "win.navigate-skipback"), ("_Next", "win.navigate-skipforward")]));
     root.append_submenu(Some("_Help"), &section(&[("_About...", "win.about")]));
     root
+}
+
+/// View > Pan&Scan > presets (from the config; MPC's three defaults unless changed).
+fn pns_presets_menu() -> gio::Menu {
+    let m = gio::Menu::new();
+    for (i, p) in config::load().pan_scan_presets.iter().enumerate() {
+        let item = gio::MenuItem::new(Some(&p.name.replace('_', "__")), None);
+        item.set_action_and_target_value(Some("win.pns-preset"), Some(&(i as u32).to_variant()));
+        m.append_item(&item);
+    }
+    m
 }
 
 /// Actions for the commands implemented so far. Names are from `commands::COMMANDS` (keys are bound in
@@ -1522,6 +1746,201 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         }
     });
     win.add_action(&show_resync);
+
+    // View > Zoom: resize the window around the video.
+    for (name, zoom) in [("view-zoom-50", Zoom::Half), ("view-zoom-100", Zoom::Normal), ("view-zoom-200", Zoom::Double), ("view-zoom-autofit", Zoom::AutoFit), ("view-zoom-autofit-larger", Zoom::AutoFitLarger)] {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            let fit = ui.cfg.borrow().autofit_factor;
+            view::zoom_window(&ui.win, &ui.video, ui.mpv, zoom, fit);
+        }));
+    }
+
+    // View > Video Frame: the table's commands, and a radio action for the menu.
+    for (_, name, frame) in FRAMES {
+        let ui = ui.clone();
+        add(name, Box::new(move || set_frame(&ui, frame)));
+    }
+    let frame = gio::SimpleAction::new_stateful("video-frame", Some(glib::VariantTy::STRING), &"".to_variant());
+    frame.connect_activate({
+        let ui = ui.clone();
+        move |_, v| {
+            if let Some(f) = v.and_then(|v| v.get::<String>()).and_then(|n| FRAMES.iter().find(|f| f.1 == n)) {
+                set_frame(&ui, f.2);
+            }
+        }
+    });
+    win.add_action(&frame);
+    add("view-vf-switchzoom", Box::new({
+        let ui = ui.clone();
+        move || {
+            use VideoFrame::*;
+            let next = match ui.cfg.borrow().video_frame {
+                FromInside => Zoom1,
+                Zoom1 => Zoom2,
+                Zoom2 => FromOutside,
+                _ => FromInside,
+            };
+            set_frame(&ui, next);
+        }
+    }));
+    let aspect = gio::SimpleAction::new_stateful("aspect", Some(glib::VariantTy::STRING), &"no".to_variant());
+    aspect.connect_activate(move |a, v| {
+        if let Some(value) = v.and_then(|v| v.get::<String>()) {
+            let _ = mpv.set_property("video-aspect-override", value.as_str());
+            a.set_state(&value.to_variant());
+            let label = ASPECTS.iter().find(|x| x.1 == value).map_or(value.clone(), |x| x.0.replace('_', ""));
+            osd(mpv, &format!("Aspect Ratio: {label}"));
+        }
+    });
+    win.add_action(&aspect);
+    add("aspectratio-next", Box::new({
+        let win = win.clone();
+        move || {
+            let cur = win.action_state("aspect").and_then(|v| v.get::<String>()).unwrap_or_default();
+            let i = ASPECTS.iter().position(|a| a.1 == cur).map_or(0, |i| (i + 1) % ASPECTS.len());
+            gio::prelude::ActionGroupExt::activate_action(&win, "aspect", Some(&ASPECTS[i].1.to_variant()));
+        }
+    }));
+    let deint = gio::SimpleAction::new_stateful("deinterlace", None, &false.to_variant());
+    deint.connect_change_state(move |a, v| {
+        if let Some(on) = v.and_then(|v| v.get::<bool>()) {
+            a.set_state(&on.to_variant());
+            let _ = mpv.set_property("deinterlace", on);
+            osd(mpv, if on { "Deinterlace: on" } else { "Deinterlace: off" });
+        }
+    });
+    win.add_action(&deint);
+
+    // Pan & scan (numpad by default), presets and rotation.
+    for (name, gx, gy, mx, my) in [
+        ("view-incsize", 1, 1, 0, 0), ("view-decsize", -1, -1, 0, 0), ("view-incwidth", 1, 0, 0, 0), ("view-decwidth", -1, 0, 0, 0),
+        ("view-incheight", 0, 1, 0, 0), ("view-decheight", 0, -1, 0, 0), ("panscan-moveleft", 0, 0, -1, 0), ("panscan-moveright", 0, 0, 1, 0),
+        ("panscan-moveup", 0, 0, 0, -1), ("panscan-movedown", 0, 0, 0, 1), ("panscan-moveupleft", 0, 0, -1, -1),
+        ("panscan-moveupright", 0, 0, 1, -1), ("panscan-movedownleft", 0, 0, -1, 1), ("panscan-movedownright", 0, 0, 1, 1),
+    ] {
+        let ui = ui.clone();
+        add(name, Box::new(move || pan_scan(&ui, |p| p.step(gx, gy, mx, my))));
+    }
+    add("panscan-center", Box::new({
+        let ui = ui.clone();
+        move || pan_scan(&ui, |p| (p.pos_x, p.pos_y) = (0.5, 0.5))
+    }));
+    add("view-reset", Box::new({
+        let ui = ui.clone();
+        move || {
+            pan_scan(&ui, |p| *p = PanScan::default());
+            let _ = mpv.set_property("video-rotate", 0i64);
+            let _ = mpv.set_property("vf", "");
+            osd(mpv, "Pan&Scan: reset");
+        }
+    }));
+    let preset = gio::SimpleAction::new("pns-preset", Some(glib::VariantTy::UINT32));
+    preset.connect_activate({
+        let ui = ui.clone();
+        move |_, v| {
+            let i = v.and_then(|v| v.get::<u32>()).unwrap_or(0) as usize;
+            let Some(p) = ui.cfg.borrow().pan_scan_presets.get(i).cloned() else { return };
+            pan_scan(&ui, |s| *s = PanScan { zoom_x: p.zoom_x, zoom_y: p.zoom_y, pos_x: p.pos_x, pos_y: p.pos_y });
+            osd(mpv, &p.name);
+        }
+    });
+    win.add_action(&preset);
+    for (name, deg) in [("panscan-rotatezp", 270), ("panscan-rotatezm", 90)] {
+        add(name, Box::new(move || {
+            let cur = prop::<i64>(mpv, "video-rotate").unwrap_or(0);
+            let new = (cur + deg) % 360;
+            let _ = mpv.set_property("video-rotate", new);
+            osd(mpv, &format!("Rotation: {new}°"));
+        }));
+    }
+    // MPC's X/Y "rotate -" flip the picture by 180 degrees around that axis.
+    add("panscan-rotatexm", Box::new(move || cmd(mpv, "vf", &["toggle", "vflip"])));
+    add("panscan-rotateym", Box::new(move || cmd(mpv, "vf", &["toggle", "hflip"])));
+
+    // OSD and statistics.
+    add("view-osd-display-time", Box::new(move || osd(mpv, "${time-pos/full} / ${duration/full}")));
+    add("view-osd-show-filename", Box::new(move || osd(mpv, "${filename}")));
+    add("view-display-renderer-stats", Box::new(move || cmd(mpv, "script-binding", &["stats/display-stats-toggle"])));
+    add("view-vsync", Box::new({
+        let ui = ui.clone();
+        move || {
+            let on = !ui.cfg.borrow().sync_to_display;
+            ui.cfg.borrow_mut().sync_to_display = on;
+            save_config(&ui);
+            apply_video(&ui);
+            osd(mpv, if on { "Sync video to display: on" } else { "Sync video to display: off" });
+        }
+    }));
+
+    // Images
+    add("file-save-image", Box::new({
+        let ui = ui.clone();
+        move || save_image_dialog(&ui)
+    }));
+    add("file-save-image-auto", Box::new({
+        let ui = ui.clone();
+        move || {
+            let (dir, ext) = (ui.cfg.borrow().snapshot_dir.clone(), ui.cfg.borrow().snapshot_ext.clone());
+            let path = Path::new(&dir).join(format!("{}.{ext}", snapshot_name(&ui)));
+            cmd(mpv, "screenshot-to-file", &[&path.to_string_lossy(), "subtitles"]);
+            osd(mpv, &format!("Image saved to {}", path.display()));
+        }
+    }));
+    add("file-save-thumbnails", Box::new({
+        let ui = ui.clone();
+        move || {
+            let name = format!("{}_thumbs.{}", snapshot_name(&ui).rsplit_once('_').map_or("thumbs".into(), |(s, _)| s.to_string()), ui.cfg.borrow().snapshot_ext);
+            let ui2 = ui.clone();
+            gtk::FileDialog::builder().title("Save Thumbnails").initial_name(name.as_str()).initial_folder(&gio::File::for_path(&ui.cfg.borrow().snapshot_dir)).build().save(
+                Some(&ui.win),
+                gio::Cancellable::NONE,
+                move |res| {
+                    let Some(path) = res.ok().and_then(|f| f.path()) else { return };
+                    let c = ui2.cfg.borrow();
+                    let win = ui2.win.clone();
+                    view::save_thumbnails(mpv, path, c.thumb_rows, c.thumb_cols, c.thumb_width, move |r| match r {
+                        Ok(p) => osd(mpv, &format!("Thumbnails saved to {}", p.display())),
+                        Err(e) => gtk::AlertDialog::builder().message("Couldn't save thumbnails").detail(e.as_str()).build().show(Some(&win)),
+                    });
+                },
+            );
+        }
+    }));
+    add("copy-image", Box::new({
+        let win = win.clone();
+        move || {
+            let tmp = glib::user_runtime_dir().join(format!("mpc-rs-copy-{}.png", std::process::id()));
+            cmd(mpv, "screenshot-to-file", &[&tmp.to_string_lossy(), "subtitles"]);
+            if let Ok(t) = gdk::Texture::from_filename(&tmp) {
+                WidgetExt::display(&win).clipboard().set_texture(&t);
+                osd(mpv, "Image copied to the clipboard");
+            }
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }));
+
+    // Shaders
+    let shaders_on = gio::SimpleAction::new_stateful("shaders-enabled", None, &true.to_variant());
+    shaders_on.connect_change_state({
+        let ui = ui.clone();
+        move |a, v| {
+            if let Some(on) = v.and_then(|v| v.get::<bool>()) {
+                a.set_state(&on.to_variant());
+                ui.shaders_on.set(on);
+                apply_shaders(&ui);
+                osd(mpv, if on { "Shaders: on" } else { "Shaders: off" });
+            }
+        }
+    });
+    win.add_action(&shaders_on);
+    add("shader-editor", Box::new({
+        let ui = ui.clone();
+        move || {
+            let (u1, u2) = (ui.clone(), ui.clone());
+            shaders::editor(ui.win.upcast_ref(), move || apply_shaders(&u1), move || u2.mpv_errors.take());
+        }
+    }));
 
     // Help
     add("about", Box::new({

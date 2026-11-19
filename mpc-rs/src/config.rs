@@ -30,6 +30,46 @@ impl AfterPlayback {
     }
 }
 
+/// View > Zoom, and Options > Playback "Default zoom" (MPC's `iZoomLevel`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Zoom {
+    Half,
+    Normal,
+    Double,
+    AutoFit,
+    AutoFitLarger,
+}
+
+impl Zoom {
+    pub const ALL: [Zoom; 5] = [Zoom::Half, Zoom::Normal, Zoom::Double, Zoom::AutoFit, Zoom::AutoFitLarger];
+    pub fn label(self) -> &'static str {
+        ["50%", "100%", "200%", "Auto Fit", "Auto Fit (Larger Only)"][self as usize]
+    }
+}
+
+/// View > Video Frame (MPC's `iDefaultVideoSize`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum VideoFrame {
+    Half,
+    Normal,
+    Double,
+    Stretch,
+    FromInside,
+    Zoom1,
+    Zoom2,
+    FromOutside,
+}
+
+/// A pan & scan preset: name, position (0..1, 0.5 = centered) and zoom per axis.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct PanScanPreset {
+    pub name: String,
+    pub pos_x: f64,
+    pub pos_y: f64,
+    pub zoom_x: f64,
+    pub zoom_y: f64,
+}
+
 /// Window title (MPC's `iTitleBarTextStyle`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum TitleBar {
@@ -52,6 +92,7 @@ pub struct Config {
     pub remember_window_size: bool,
     pub window_size: (i32, i32),
     pub recent_files_number: usize,
+    pub show_osd: bool,
     // Keys: changed command bindings, keyed by action name (see `commands::COMMANDS`).
     pub keys: BTreeMap<String, Binding>,
     // Logo: an image file instead of the built-in logo (empty = built-in).
@@ -71,6 +112,31 @@ pub struct Config {
     /// Rate change per step in %; 0 = double/halve (MPC's "auto").
     pub speed_step: u32,
     pub pitch_correction: bool,
+    /// Resize the window to `zoom` when a file opens ("Auto-zoom"), fitting `autofit_factor` % of the screen.
+    pub auto_zoom: bool,
+    pub zoom: Zoom,
+    pub autofit_factor: u32,
+    pub video_frame: VideoFrame,
+    pub pan_scan_presets: Vec<PanScanPreset>,
+    // Output
+    pub hwdec: bool,
+    pub color_management: bool,
+    /// ICC rendering intent: 0 perceptual, 1 relative colorimetric, 2 saturation, 3 absolute colorimetric.
+    pub icc_intent: u32,
+    /// Output levels: false = 0-255 (full), true = 16-235 (limited).
+    pub output_limited: bool,
+    // Sync
+    pub sync_to_display: bool,
+    pub interpolation: bool,
+    // Shaders, by name (see `shaders::available`)
+    pub shaders_pre: Vec<String>,
+    pub shaders_post: Vec<String>,
+    // Screenshots and thumbnails
+    pub snapshot_dir: String,
+    pub snapshot_ext: String,
+    pub thumb_rows: u32,
+    pub thumb_cols: u32,
+    pub thumb_width: u32,
     // Audio (MPC's audio switcher page)
     pub audio_normalize: bool,
     pub audio_max_norm_factor: u32,
@@ -116,6 +182,8 @@ pub struct Config {
     pub search_in_folder: bool,
     pub time_tooltip: bool,
     pub hide_windowed_mouse_pointer: bool,
+    pub osd_font: String,
+    pub osd_font_size: u32,
     // Misc: color controls
     pub brightness: i32,
     pub contrast: i32,
@@ -139,6 +207,7 @@ impl Default for Config {
             remember_window_size: false,
             window_size: (960, 620),
             recent_files_number: 20,
+            show_osd: true,
             keys: BTreeMap::new(),
             logo_file: String::new(),
             volume: 100,
@@ -153,6 +222,28 @@ impl Default for Config {
             autoload_subtitles: true,
             speed_step: 0,
             pitch_correction: true,
+            auto_zoom: true,
+            zoom: Zoom::Normal,
+            autofit_factor: 75,
+            video_frame: VideoFrame::FromInside,
+            pan_scan_presets: {
+                let p = |name: &str, zx: f64, zy: f64| PanScanPreset { name: name.into(), pos_x: 0.5, pos_y: 0.5, zoom_x: zx, zoom_y: zy };
+                let (r43, r169, r235) = (4.0 / 3.0, 16.0 / 9.0, 2.35);
+                vec![p("Scale to 16:9 TV", 1.0, r169 / r43), p("Zoom to Widescreen", r169 / r43, r169 / r43), p("Zoom to Ultra-Widescreen", r235 / r43, r235 / r43)]
+            },
+            hwdec: false,
+            color_management: false,
+            icc_intent: 1,
+            output_limited: false,
+            sync_to_display: false,
+            interpolation: false,
+            shaders_pre: Vec::new(),
+            shaders_post: Vec::new(),
+            snapshot_dir: glib::user_special_dir(glib::UserDirectory::Pictures).unwrap_or_else(glib::home_dir).to_string_lossy().into_owned(),
+            snapshot_ext: "jpg".into(),
+            thumb_rows: 4,
+            thumb_cols: 4,
+            thumb_width: 1024,
             audio_normalize: false,
             audio_max_norm_factor: 400,
             audio_boost: 0,
@@ -190,6 +281,8 @@ impl Default for Config {
             search_in_folder: true,
             time_tooltip: true,
             hide_windowed_mouse_pointer: true,
+            osd_font: "sans-serif".into(),
+            osd_font_size: 30,
             brightness: 0,
             contrast: 0,
             hue: 0,

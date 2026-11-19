@@ -4,7 +4,8 @@
 
 use crate::{
     commands::{self, Binding, COMMANDS, Media, Mouse},
-    config::{self, AfterPlayback, Config, RepeatMode, TitleBar},
+    config::{self, AfterPlayback, Config, RepeatMode, TitleBar, Zoom},
+    shaders,
 };
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
 use std::{
@@ -42,7 +43,10 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
         ("Keys", true, keys_box.upcast()),
         ("Logo", true, logo_page(&work)),
         ("Playback", false, playback_page(&work)),
+        ("Output", true, output_page(&work)),
+        ("Shaders", true, shaders_page(&work)),
         ("Fullscreen", true, fullscreen_page(&work)),
+        ("Sync", true, sync_page(&work)),
         ("Audio", true, audio_page(&work)),
         ("Subtitles", false, subtitles_page(&work)),
         ("Default Style", true, sub_style_page(&work)),
@@ -183,10 +187,12 @@ fn player_page(w: &Work) -> gtk::Widget {
     let playlist = check(w, "Remember last playlist", |c| c.remember_playlist, |c, v| c.remember_playlist = v);
     let pos = check(w, "Remember File position", |c| c.remember_file_pos, |c, v| c.remember_file_pos = v);
     let size = check(w, "Remember last window size", |c| c.remember_window_size, |c, v| c.remember_window_size = v);
+    let osd = check(w, "Show OSD", |c| c.show_osd, |c, v| c.show_osd = v);
     let recent = spin(w, 0.0, 100.0, 1.0, |c| c.recent_files_number as i64, |c, v| c.recent_files_number = v as usize);
     page(&[
         group("Open options", &[open.upcast_ref()]).upcast_ref(),
         group("Title bar", &[title.upcast_ref(), media_title.upcast_ref()]).upcast_ref(),
+        group("Other", &[osd.upcast_ref()]).upcast_ref(),
         group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
     ])
 }
@@ -236,9 +242,13 @@ fn playback_page(w: &Work) -> gtk::Widget {
     let auto_subs = check(w, "Auto-load subtitles", |c| c.autoload_subtitles, |c, v| c.autoload_subtitles = v);
     let speed = spin(w, 0.0, 100.0, 5.0, |c| c.speed_step as i64, |c, v| c.speed_step = v as u32);
     let pitch = check(w, "Keep the pitch when changing the rate", |c| c.pitch_correction, |c, v| c.pitch_correction = v);
+    let zoom = combo(w, &Zoom::ALL.map(|z| z.label()), |c| c.zoom as usize, |c, i| c.zoom = Zoom::ALL[i]);
+    let auto_zoom = check(w, "Auto-zoom (resize the window when a file opens)", |c| c.auto_zoom, |c, v| c.auto_zoom = v);
+    let fit = spin(w, 25.0, 100.0, 5.0, |c| c.autofit_factor as i64, |c, v| c.autofit_factor = v as u32);
     page(&[
         group("Audio", &[&row("Volume:", &volume, "%")]).upcast_ref(),
         group("Playback", &[&row("Play", &loops, "time(s)"), forever.upcast_ref(), &row("Repeat mode:", &mode, ""), &row("After Playback:", &after, "")]).upcast_ref(),
+        group("Default zoom", &[&row("Zoom:", &zoom, ""), auto_zoom.upcast_ref(), &row("Auto fit factor:", &fit, "%")]).upcast_ref(),
         group("Default track preference", &[&row("Subtitles:", &subs, ""), &row("Audio:", &audio, "")]).upcast_ref(),
         group("Open settings", &[auto_audio.upcast_ref(), auto_subs.upcast_ref()]).upcast_ref(),
         group("Control", &[&row("Volume step:", &step, "%"), &row("Speed step:", &speed, "% (0 = double/halve)"), pitch.upcast_ref()]).upcast_ref(),
@@ -278,9 +288,22 @@ fn tweaks_page(w: &Work) -> gtk::Widget {
         |c| c.search_in_folder, |c, v| c.search_in_folder = v);
     let tooltip = check(w, "Show time tooltip", |c| c.time_tooltip, |c, v| c.time_tooltip = v);
     let pointer = check(w, "Auto-hide the mouse pointer during playback in windowed mode", |c| c.hide_windowed_mouse_pointer, |c, v| c.hide_windowed_mouse_pointer = v);
+    let osd_font = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
+    osd_font.set_level(gtk::FontLevel::Family);
+    osd_font.set_font_desc(&gtk::pango::FontDescription::from_string(&w.borrow().osd_font));
+    osd_font.connect_font_desc_notify({
+        let work = w.clone();
+        move |b| {
+            if let Some(family) = b.font_desc().and_then(|d| d.family()) {
+                work.borrow_mut().osd_font = family.to_string();
+            }
+        }
+    });
+    let osd_size = spin(w, 8.0, 200.0, 1.0, |c| c.osd_font_size as i64, |c, v| c.osd_font_size = v as u32);
     page(&[
         group("Jump distances (small, medium, large in ms)", &[jumps.upcast_ref(), fast.upcast_ref()]).upcast_ref(),
         group("Tweaks", &[marks.upcast_ref(), folder.upcast_ref(), tooltip.upcast_ref(), pointer.upcast_ref()]).upcast_ref(),
+        group("OSD", &[&row("OSD font:", &osd_font, ""), &row("Size:", &osd_size, "(on a 720-line screen)")]).upcast_ref(),
     ])
 }
 
@@ -297,6 +320,106 @@ fn color(work: &Work, get: fn(&Config) -> String, set: fn(&mut Config, String)) 
         set(&mut work.borrow_mut(), format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.red()), byte(c.green()), byte(c.blue()), byte(c.alpha())));
     });
     b
+}
+
+/// MPC's Output page: the parts that mean something with mpv (decoding, color, levels, screenshots).
+fn output_page(w: &Work) -> gtk::Widget {
+    let hwdec = check(w, "Hardware decoding (when the GPU supports the format)", |c| c.hwdec, |c, v| c.hwdec = v);
+    let cm = check(w, "Color management (use the display's ICC profile)", |c| c.color_management, |c, v| c.color_management = v);
+    let intent = combo(w, &["Perceptual", "Relative Colorimetric", "Saturation", "Absolute Colorimetric"], |c| c.icc_intent as usize, |c, i| c.icc_intent = i as u32);
+    let range = combo(w, &["0 - 255", "16 - 235"], |c| c.output_limited as usize, |c, i| c.output_limited = i == 1);
+    let dir = entry(w, "Folder", |c| c.snapshot_dir.clone(), |c, v| c.snapshot_dir = v);
+    let ext = combo(w, &["jpg", "png", "webp"], |c| ["jpg", "png", "webp"].iter().position(|e| *e == c.snapshot_ext).unwrap_or(0), |c, i| c.snapshot_ext = ["jpg", "png", "webp"][i].into());
+    let rows = spin(w, 1.0, 16.0, 1.0, |c| c.thumb_rows as i64, |c, v| c.thumb_rows = v as u32);
+    let cols = spin(w, 1.0, 16.0, 1.0, |c| c.thumb_cols as i64, |c, v| c.thumb_cols = v as u32);
+    let width = spin(w, 256.0, 4096.0, 16.0, |c| c.thumb_width as i64, |c, v| c.thumb_width = v as u32);
+    page(&[
+        group("Video", &[hwdec.upcast_ref(), &row("Output range:", &range, "")]).upcast_ref(),
+        group("Color management", &[cm.upcast_ref(), &row("Rendering intent:", &intent, "")]).upcast_ref(),
+        group("Screenshots", &[&row("Folder:", &dir, ""), &row("Format:", &ext, ""), &row("Thumbnail rows:", &rows, ""), &row("Thumbnail columns:", &cols, ""), &row("Thumbnail width:", &width, "px")]).upcast_ref(),
+    ])
+}
+
+fn sync_page(w: &Work) -> gtk::Widget {
+    let sync = check(w, "Sync video to display (resample audio to the refresh rate)", |c| c.sync_to_display, |c, v| c.sync_to_display = v);
+    let interp = check(w, "Frame interpolation (smooth motion; needs sync to display)", |c| c.interpolation, |c, v| c.interpolation = v);
+    page(&[group("Sync", &[sync.upcast_ref(), interp.upcast_ref()]).upcast_ref()])
+}
+
+/// MPC's Shaders page: the available shaders, and the pre-resize and post-resize chains.
+fn shaders_page(w: &Work) -> gtk::Widget {
+    let names = gtk::StringList::new(&shaders::available().iter().map(String::as_str).collect::<Vec<_>>());
+    let avail = gtk::ListBox::new();
+    avail.bind_model(Some(&names), |o| gtk::Label::builder().label(o.downcast_ref::<gtk::StringObject>().unwrap().string()).xalign(0.0).build().upcast());
+    // One chain: a list box kept in step with the config list it edits.
+    let chain = |get: fn(&Config) -> &Vec<String>, set: fn(&mut Config) -> &mut Vec<String>| {
+        let list = gtk::ListBox::new();
+        let refill = {
+            let (list, work) = (list.clone(), w.clone());
+            Rc::new(move || {
+                list.remove_all();
+                for n in get(&work.borrow()) {
+                    list.append(&gtk::Label::builder().label(n.as_str()).xalign(0.0).build());
+                }
+            })
+        };
+        refill();
+        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        let add = gtk::Button::with_label("Add");
+        add.connect_clicked({
+            let (avail, names, work, refill) = (avail.clone(), names.clone(), w.clone(), refill.clone());
+            move |_| {
+                if let Some(n) = avail.selected_row().and_then(|r| names.string(r.index() as u32)) {
+                    set(&mut work.borrow_mut()).push(n.to_string());
+                    refill();
+                }
+            }
+        });
+        let edit = |label: &str, f: fn(&mut Vec<String>, usize)| {
+            let b = gtk::Button::with_label(label);
+            let (list, work, refill) = (list.clone(), w.clone(), refill.clone());
+            b.connect_clicked(move |_| {
+                if let Some(r) = list.selected_row() {
+                    let i = r.index() as usize;
+                    f(set(&mut work.borrow_mut()), i);
+                    refill();
+                }
+            });
+            b
+        };
+        buttons.append(&add);
+        buttons.append(&edit("Remove", |v, i| {
+            v.remove(i);
+        }));
+        buttons.append(&edit("Up", |v, i| {
+            if i > 0 {
+                v.swap(i, i - 1);
+            }
+        }));
+        buttons.append(&edit("Down", |v, i| {
+            if i + 1 < v.len() {
+                v.swap(i, i + 1);
+            }
+        }));
+        let b = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        b.append(&gtk::ScrolledWindow::builder().min_content_height(120).child(&list).build());
+        b.append(&buttons);
+        b
+    };
+    let pre = chain(|c| &c.shaders_pre, |c| &mut c.shaders_pre);
+    let post = chain(|c| &c.shaders_post, |c| &mut c.shaders_post);
+    let note = gtk::Label::builder()
+        .label("Pre-resize shaders run on the video at its own size, post-resize ones on the scaled picture. Your own mpv shaders go in the shaders folder (Play > Shaders > Shader Editor).")
+        .wrap(true)
+        .xalign(0.0)
+        .css_classes(["dim-label"])
+        .build();
+    page(&[
+        group("Available shaders", &[gtk::ScrolledWindow::builder().min_content_height(160).child(&avail).build().upcast_ref()]).upcast_ref(),
+        group("Pre-resize", &[pre.upcast_ref()]).upcast_ref(),
+        group("Post-resize", &[post.upcast_ref()]).upcast_ref(),
+        note.upcast_ref(),
+    ])
 }
 
 /// MPC's audio switcher page, done with mpv's audio filters.
