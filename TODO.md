@@ -35,11 +35,15 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Media keys through MPRIS (Play/Pause/Stop/Next/Previous, bindable like MPC's App Command column)
 
 ## Phase 4 — Playlist
-- [ ] Dockable/side playlist panel; add, remove, reorder, sort, randomize
-- [ ] Next/previous, shuffle; repeat file / playlist / forever
-- [ ] Load and save `.mpcpl`, `.m3u`, `.m3u8`, `.pls`, `.asx`, `.cue`
-- [ ] Auto-load subtitles and other files from the folder; "play next file in folder"
-- [ ] Recent files; remember the playback position per file and per DVD
+- [x] Side playlist panel (View > Playlist, Ctrl+7); add, remove, drag to reorder, sort, randomize,
+      restore, copy, add containing folder, hide on fullscreen; restored on the next start (`default.mpcpl`)
+- [x] Next/previous, shuffle; repeat file / playlist / forever
+- [x] Load `.mpcpl`, `.m3u`, `.m3u8`, `.pls`, `.asx`, `.cue` (a cue sheet plays as one item with chapters);
+      save `.mpcpl`, `.m3u`, `.m3u8`, `.pls`, `.asx`
+- [x] Auto-load subtitles and audio files from the folder (mpv `sub-auto`/`audio-file-auto`); next/previous
+      file in the folder when the playlist has one item
+- [x] Recent files; remember the playback position per file (off by default, as in MPC:
+      `remember_file_pos` in `config.toml` until the Options page exists)
 
 ## Phase 5 — Settings
 - [ ] TOML config in `$XDG_CONFIG_HOME/mpc-rs/config.toml`, with defaults matching MPC's
@@ -70,7 +74,7 @@ Each phase ends with a build that runs, then stops for review.
 - [ ] Deinterlace toggle
 
 ## Phase 8 — Discs, devices, info
-- [ ] Open DVD/BD; DVD menus (title/root/subtitle/audio/angle/chapter); navigation
+- [ ] Open DVD/BD; DVD menus (title/root/subtitle/audio/angle/chapter); navigation; remember DVD position
 - [ ] Open Disc (auto-detect), Audio CD
 - [ ] Capture devices via v4l2 (Open Device, capture bar)
 - [ ] A-B repeat, Go To (time/frame), chapters

@@ -2,6 +2,8 @@ mod commands;
 mod config;
 mod mpris;
 mod options;
+mod playlist;
+mod playlistbar;
 mod ui;
 mod video;
 
@@ -17,6 +19,10 @@ fn main() -> glib::ExitCode {
             // MPC "after playback: do nothing" = stay on the last frame.
             init.set_property("keep-open", "yes")?;
             init.set_property("volume-max", "100")?;
+            // MPC auto-loads subtitles and audio files named like the video, also from these subfolders.
+            init.set_property("sub-auto", "fuzzy")?;
+            init.set_property("audio-file-auto", "fuzzy")?;
+            init.set_property("sub-file-paths", "subtitles:subs")?;
             init.set_property("terminal", "yes")?;
             // Debug knob: MPC_RS_MPV_LOG=all=v (any mpv --msg-level value).
             init.set_property("msg-level", std::env::var("MPC_RS_MPV_LOG").unwrap_or("all=warn".into()))?;
@@ -36,7 +42,7 @@ fn main() -> glib::ExitCode {
     app.connect_activate(move |app| ui::window(app, mpv));
     app.connect_open(move |app, files, _| {
         ui::window(app, mpv);
-        ui::open_files(mpv, files, false);
+        ui::open_files(files, false);
     });
 
     let code = app.run();
