@@ -6,3 +6,6 @@ target/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Local test media (large, never commit)
+/media/

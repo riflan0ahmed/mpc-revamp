@@ -38,8 +38,12 @@ fn current_fbo() -> i32 {
 pub fn new(mpv: &'static Mpv) -> gtk::GLArea {
     let area = gtk::GLArea::new();
     area.set_auto_render(false);
-    // Desktop GL: mpv's GLES path loses chroma on llvmpipe, and desktop GL is mpv's best-tested path anyway.
-    area.set_allowed_apis(gtk::gdk::GLAPI::GL);
+    // ponytail: WSLg's llvmpipe loses chroma on mpv's GLES path, so force desktop GL there. Elsewhere keep
+    // GTK's choice: GTK 4.22 may run its own renderer on GLES (seen on NVIDIA/Wayland), and then a desktop
+    // GL GLArea context can't be created at all.
+    if std::env::var_os("WSL_DISTRO_NAME").is_some() {
+        area.set_allowed_apis(gtk::gdk::GLAPI::GL);
+    }
     area.set_hexpand(true);
     area.set_vexpand(true);
     let render_ctx: Rc<RefCell<Option<RenderContext<'static>>>> = Rc::default();

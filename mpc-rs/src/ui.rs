@@ -352,9 +352,7 @@ fn update(ui: &Ui) {
     if !paused {
         ui.stopped.set(false);
     }
-    let state = if idle {
-        "Stopped"
-    } else if ui.stopped.get() {
+    let state = if idle || ui.stopped.get() {
         "Stopped"
     } else if prop::<bool>(mpv, "paused-for-cache").unwrap_or(false) {
         "Buffering"

@@ -22,22 +22,24 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 
 ## Dev environment
 
-- Build and run inside **WSL Ubuntu**. WSLg displays the GUI windows. Rust isn't installed on Windows.
-- The repo lives on the Windows drive, so WSL sees it under `/mnt/c/...`. Below, `$REPO` is that
-  path (`wslpath` converts a Windows path). Point the build output at the Linux filesystem, because building on `/mnt/c` is slow:
-  `export CARGO_TARGET_DIR=~/.cache/mpc-rs-target`
-- Run commands from Windows like this: `wsl.exe -d Ubuntu -- bash -lc '<cmd>'`
-- System packages: `build-essential pkg-config libmpv-dev libgtk-4-dev mpv`.
-  sudo needs a password; install with `wsl.exe -d Ubuntu -u root -- apt-get install ...` instead.
-- Build and run:
-  `wsl.exe -d Ubuntu -- bash -lc 'source ~/.cargo/env; export CARGO_TARGET_DIR=~/.cache/mpc-rs-target; cd $REPO/mpc-rs && cargo run -- ~/media/test.mkv'`
-  (`~/media/test.mkv` is a 20 s test pattern with a sine tone.)
-- WSLg has no GPU here (llvmpipe, "COPY MODE"). For mpv to draw correctly it needs **desktop GL**
-  (`GLArea::set_allowed_apis(GL)`) **and `fbo-format=rgba8`** (set only when `WSL_DISTRO_NAME` is set).
-  GLES gives a green picture; the default `rgba16f` gives black.
-- Checking the GUI: never capture the whole screen (it holds the user's private windows). Use
-  `PrintWindow` on the window whose title contains `mpc-rs (Ubuntu)` (WSLg windows belong to
-  `msrdc.exe`). Close the player with `WM_CLOSE` to the same window.
+- Native **Ubuntu 26.04**, GNOME on **Wayland**, NVIDIA GPU. Run everything directly from the repo:
+  `cd mpc-rs && cargo run -- ../media/test-movie.mp4`
+- System packages: `build-essential pkg-config libmpv-dev libgtk-4-dev mpv`. sudo needs a password,
+  so ask the user to install packages.
+- **Test video:** always test with `media/test-movie.mp4` (a 720p x264/AAC feature film). `/media/` is
+  gitignored. Never commit it.
+- GTK 4.22 draws with **GLES** here. Don't force desktop GL on the `GLArea`, because GTK then can't create
+  its context ("Unable to create a GL context") and the video stays blank while audio plays.
+- Logs: libmpv prints only to a tty, so wrap runs in a pty to capture them:
+  `MPC_RS_MPV_LOG=all=v script -qfec "cargo run -q -- ../media/test-movie.mp4" /dev/null`
+  (`GDK_DEBUG=opengl` shows GTK's GL context choice.)
+- Checking the GUI: never capture the whole screen (it holds the user's private windows). GNOME on
+  Wayland has no per-window capture, so run with `GDK_BACKEND=x11`, find the player window with
+  `xwininfo -root -tree` (skip the 1x1 leader window), and grab only that window id with `XGetImage`
+  (Python ctypes + PIL; `xwd`/`xdotool` aren't installed). Never send synthetic input, because it would
+  go to whatever window has focus.
+- WSL (older setup, still handled in code): WSLg's llvmpipe needs desktop GL and `fbo-format=rgba8`.
+  Both apply only when `WSL_DISTRO_NAME` is set.
 
 ## Where to look in the original
 
