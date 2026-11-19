@@ -1,0 +1,123 @@
+# Flatpak recipe for mpc-rv: one package for every Linux distro. It runs on the GNOME runtime (GTK4)
+# and bundles its own libmpv, so it doesn't depend on the distro's mpv or GTK versions.
+#
+# Build the installable bundle with: packaging/build-flatpak.sh
+app-id: io.github.mpcrv.Player
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: mpc-rv
+finish-args:
+  - --share=ipc
+  - --share=network # streams (http/https)
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=all # GPU, DVD/CD drives, cameras and capture cards, DVB tuners
+  - --filesystem=host # open media anywhere, like any desktop player
+  - --own-name=org.mpris.MediaPlayer2.mpc_rv # media keys and desktop media controls
+  - --talk-name=org.gnome.SessionManager # Play > After Playback > Log Off
+  - --talk-name=org.gnome.ScreenSaver # Play > After Playback > Turn off the monitor
+  - --system-talk-name=org.freedesktop.login1 # Stand By, Hibernate, Shutdown, Lock
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/pkgconfig
+  - /share/man
+  - /share/doc
+  - '*.a'
+  - '*.la'
+modules:
+  # mpv's Lua scripting (needed for the statistics overlay).
+  - name: luajit
+    no-autogen: true
+    make-args: [PREFIX=/app]
+    make-install-args: [PREFIX=/app]
+    sources:
+      - type: git
+        url: https://github.com/LuaJIT/LuaJIT.git
+        branch: v2.1
+    cleanup: [/bin, /share/luajit-2.1]
+
+  - name: libass
+    config-opts: [--disable-static]
+    sources:
+      - type: archive
+        url: https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz
+        sha256: eae425da50f0015c21f7b3a9c7262a910f0218af469e22e2931462fed3c50959
+
+  # mpv's renderer. OpenGL only: mpc-rv draws through mpv's OpenGL render API.
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Dglslang=disabled
+      - -Dlcms=enabled
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/libplacebo.git
+        tag: v7.351.0
+
+  - name: ffmpeg
+    config-opts:
+      - --enable-gpl
+      - --enable-shared
+      - --disable-static
+      - --disable-programs
+      - --disable-doc
+      - --disable-debug
+      - --enable-libdav1d
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
+        sha256: 733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=luajit
+      - -Djavascript=disabled
+      - -Dvulkan=disabled
+      - -Dmanpage-build=disabled
+      - -Dhtml-build=disabled
+      - -Dpdf-build=disabled
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+
+  - name: mpc-rv
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/mpc-rv/cargo
+        CARGO_TARGET_DIR: /run/build/mpc-rv/target
+        LIBRARY_PATH: /app/lib # libmpv2 links -lmpv without pkg-config
+      # Crates are downloaded during the build. (Flathub doesn't allow network access while
+      # building; submitting there needs flatpak-cargo-generator's offline sources instead.)
+      build-args: [--share=network]
+    build-commands:
+      - cargo build --release --locked
+      - install -Dm755 target/release/mpc-rv /app/bin/mpc-rv
+      - install -Dm644 packaging/io.github.mpcrv.Player.desktop /app/share/applications/io.github.mpcrv.Player.desktop
+      - install -Dm644 packaging/io.github.mpcrv.Player.metainfo.xml /app/share/metainfo/io.github.mpcrv.Player.metainfo.xml
+      - for s in 48 128 256; do install -Dm644 res/icons/$s.png /app/share/icons/hicolor/${s}x${s}/apps/io.github.mpcrv.Player.png; done
+      - mkdir -p /app/share/mpc-rv/po && cp res/po/*.po /app/share/mpc-rv/po/
+    sources:
+      - type: dir
+        path: ../../mpc-rv
+        skip: [target]
+      - type: file
+        path: ../io.github.mpcrv.Player.desktop
+        dest: packaging
+      - type: file
+        path: ../io.github.mpcrv.Player.metainfo.xml
+        dest: packaging

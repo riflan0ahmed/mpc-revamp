@@ -16,29 +16,74 @@
   rewritten from scratch in Rust. The program is called <code>mpc-rv</code>.
 </p>
 
-> [!IMPORTANT]
-> **mpc-revamp is not MPC-HC.** It's an independent, unofficial project with its own code base. It isn't
-> affiliated with or endorsed by the MPC-HC developers.
+> [!NOTE]
+> **mpc-revamp is a vibe-coded revamp of MPC-HC, written in Rust.** It gives you almost the same
+> experience as MPC-HC, with some small UI improvements. It's an unofficial project, not made by
+> the MPC-HC developers.
 >
-> - **For MPC-HC users:** mpc-revamp copies MPC-HC's menus, keyboard shortcuts, Options pages and command
->   line switches so it feels familiar, but it isn't a drop-in replacement. Playback is done by
->   [libmpv](https://mpv.io/) instead of DirectShow/LAV Filters, so MPC-HC's renderers, filters,
->   skins and settings (registry or `.ini`) don't carry over, and some Windows-only features are
->   dropped (see "Dropped" in [TODO.md](TODO.md)).
-> - **For MPC-HC developers:** none of MPC-HC's C++ code runs here. The MPC-HC source was used as a
->   reference, and some of its GPL assets are reused (see [Credits](#credits)). Please report mpc-revamp
->   problems in this repository, not to MPC-HC.
-> - **Looking for MPC-HC itself on Windows?** See the original
->   [mpc-hc/mpc-hc](https://github.com/mpc-hc/mpc-hc) and its actively maintained continuation,
->   [clsid2/mpc-hc](https://github.com/clsid2/mpc-hc).
+> Its code was written with an AI coding assistant, guided and tested by its developer. Bug
+> reports, fixes and reviews from people who know MPC-HC, GTK or mpv are especially welcome.
+>
+> Thanks to the MPC-HC developers for the original player.
+>
+> **Looking for MPC-HC itself on Windows?** Get it from [clsid2/mpc-hc](https://github.com/clsid2/mpc-hc),
+> the actively maintained version.
 
 ## Status
 
-Linux, under active development. Done so far (details in [TODO.md](TODO.md)): playback with a
-GTK4 interface, MPC's command table and remappable keys, playlist, settings and command line,
-tracks/audio/subtitles with a subresync bar, video zoom/pan&scan/shaders, DVD/Blu-ray/audio CD,
-capture devices, favorites, MPRIS and a JSON control socket, file associations, translations, and
-DVB TV (untested). Still to do: the web remote, online subtitles and the Windows port.
+Version 1.0.0 for Linux, under active development. See [TODO.md](TODO.md) for what's done and
+what's planned.
+
+## Install (Linux)
+
+| Package | Distributions | Status |
+|---|---|---|
+| Flatpak | Any Linux distribution | Ready (1.0.0) |
+| AUR (`mpc-rv`) | Arch Linux, Manjaro, EndeavourOS | Ready (1.0.0) |
+| `.deb` | Debian, Ubuntu, Linux Mint | Not ready yet |
+| AppImage | Any Linux distribution | Not ready yet |
+
+Until the `.deb` and AppImage are ready, use the Flatpak on Debian, Ubuntu and Mint, or
+[build from source](#building-linux).
+
+### Flatpak
+
+Download `mpc-rv-<version>-x86_64.flatpak` from the
+[latest release](https://github.com/riflan0ahmed/mpc-revamp/releases/latest), then install and run it:
+
+```sh
+flatpak install --user mpc-rv-1.0.0-x86_64.flatpak
+flatpak run io.github.mpcrv.Player /path/to/video.mkv
+```
+
+Flatpak fetches the GNOME runtime from Flathub if you don't have it yet. After that, mpc-rv
+shows up in your applications menu. To update, install the newer file the same way. To remove it:
+`flatpak uninstall io.github.mpcrv.Player`.
+
+Differences in the Flatpak version:
+
+- Settings are kept in `~/.var/app/io.github.mpcrv.Player/config/mpc-rv/`, not `~/.config/mpc-rv/`.
+- The JSON control socket is created inside the sandbox, so programs outside it can't reach it.
+  Use MPRIS (media keys, `playerctl`) instead.
+- Options > Formats and `/regall` set file associations inside the sandbox only. The package
+  already registers mpc-rv for video and audio files, so use your desktop's "Open With" to make
+  it the default player.
+- Navigate > Tuner Scan can't run your system's `dvbv5-scan`. Run the scan in a terminal
+  instead (`dvbv5-scan -o channels.conf -O ZAP <scan table>`) and copy the resulting
+  `channels.conf` into the settings folder above.
+
+### Arch Linux (AUR)
+
+Install the `mpc-rv` package with an AUR helper, for example `yay -S mpc-rv`, or by hand:
+
+```sh
+git clone https://aur.archlinux.org/mpc-rv.git
+cd mpc-rv
+makepkg -si
+```
+
+It builds from the release tag and uses Arch's own GTK4 and mpv, so none of the Flatpak
+differences above apply.
 
 ## Building (Linux)
 
@@ -57,6 +102,18 @@ cargo run --release -- /path/to/video.mkv
 ```
 
 If the player is already running, opening another file sends it to that window.
+
+### Building the Flatpak package
+
+Install `flatpak` and `flatpak-builder`, then run from the repository root:
+
+```sh
+packaging/build-flatpak.sh
+```
+
+The script builds `dist/mpc-rv-<version>-x86_64.flatpak`. It bundles mpc-rv with its own libmpv
+and FFmpeg. The first run downloads the GNOME SDK (a few GB) and compiles FFmpeg and libmpv. Later
+runs reuse that work.
 
 ## Supported formats
 
@@ -103,8 +160,9 @@ bindings, discs and TV channels, desktop integration. The app itself is a thin `
 | Path | Contents |
 |---|---|
 | `mpc-rv/` | The Rust project (the `mpc-rv` program) |
+| `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
-| `CLAUDE.md` | Project notes and conventions (also used by Claude Code) |
+| `CLAUDE.md` | Project notes and conventions |
 
 The original MPC-HC source is used as a reference while porting, but it isn't part of this repo.
 To look at it the same way, clone it into `mpc-hc-develop/` (that folder is gitignored):
@@ -115,8 +173,15 @@ git clone --depth 1 -b develop https://github.com/mpc-hc/mpc-hc.git mpc-hc-devel
 
 ## Contributing
 
-Pick an unchecked item from [TODO.md](TODO.md), ideally in the current phase, and open a pull request.
-Keep changes small and focused.
+Developers are warmly welcome. You can help in many ways:
+
+- **Support:** answer questions and help other users in
+  [Issues](https://github.com/riflan0ahmed/mpc-revamp/issues).
+- **Bug fixes:** pick a reported bug, or report one you found, with steps to reproduce it.
+- **New features:** pick an unchecked item from [TODO.md](TODO.md), or open an issue to suggest one.
+- **Packaging:** the `.deb` and AppImage packages aren't ready yet, and help with them is welcome.
+
+Open a pull request when you're ready. Small, focused changes are the easiest to review.
 
 ## Credits
 
@@ -128,7 +193,7 @@ mpc-revamp follows MPC-HC's design closely, and reuses some of its GPL material:
 - setting names and defaults, menu layout, command line switches and the `MpcApi.h` command names
 - its "321" icon, with a yellow "REVAMP" badge added so the two players can't be confused
 
-The idle-screen logo shows that badged icon next to the program's name, mpc-rv,, a "RUST REVAMP" badge and an
+The idle-screen logo shows that badged icon next to the program's name, mpc-rv, a "RUST REVAMP" badge and an
 "Unofficial Media Player Classic rewrite" line. `mpc-rv/res/make_art.py` builds both.
 
 Thanks to the MPC-HC developers and translators.

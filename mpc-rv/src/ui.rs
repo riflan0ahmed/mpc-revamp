@@ -1264,15 +1264,23 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         controls.append(&b);
     }
     let state_buttons: [gtk::ToggleButton; 3] = state_buttons.try_into().expect("play, pause and stop buttons");
-    // The theme's accent color (the one the seek and volume bars use), so it follows the desktop's
-    // accent setting; a light tint behind the icon, the icon itself in the accent color.
+    // One fixed highlight color, the same on every theme and distro: the seek and volume bars, and
+    // the active Play/Pause/Stop button (a light tint behind the icon, the icon in that color).
+    // The fullscreen panel sits on dark video, so it's drawn light-on-dark whatever the theme.
     // Plain GTK only rounds a window's top corners (libadwaita rounds all four); round the bottom
     // ones too, except when the window is maximized, tiled or fullscreen.
     let css = gtk::CssProvider::new();
     css.load_from_string(
-        ".mpc-state:checked { color: @accent_color; background-color: alpha(@accent_color, 0.2); }\n\
-         .mpc-state:checked:hover { background-color: alpha(@accent_color, 0.3); }\n\
-         .mpc-fs-panel { background-color: alpha(black, 0.65); padding-top: 4px; }\n\
+        "@define-color mpc_accent #e95420;\n\
+         scale > trough > highlight { background-color: @mpc_accent; border-color: @mpc_accent; }\n\
+         .mpc-state:checked { color: @mpc_accent; background-color: alpha(@mpc_accent, 0.2); }\n\
+         .mpc-state:checked:hover { background-color: alpha(@mpc_accent, 0.3); }\n\
+         .mpc-fs-panel { background-color: alpha(black, 0.65); padding-top: 4px; color: white; }\n\
+         .mpc-fs-panel button { color: white; }\n\
+         .mpc-fs-panel button:hover { background-color: alpha(white, 0.15); }\n\
+         .mpc-fs-panel button:disabled { color: alpha(white, 0.4); }\n\
+         .mpc-fs-panel .mpc-state:checked { color: @mpc_accent; background-color: alpha(@mpc_accent, 0.25); }\n\
+         .mpc-fs-panel scale > trough { background-color: alpha(white, 0.3); }\n\
          window.csd:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-top):not(.tiled-bottom):not(.tiled-left):not(.tiled-right) \
            { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }",
     );

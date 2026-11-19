@@ -1,0 +1,25 @@
+pkgbase = mpc-rv
+	pkgdesc = Unofficial Rust rewrite of Media Player Classic - Home Cinema, with libmpv and GTK4
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/riflan0ahmed/mpc-revamp
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	makedepends = git
+	depends = gtk4
+	depends = mpv
+	depends = glib2
+	depends = cairo
+	depends = pango
+	depends = gdk-pixbuf2
+	depends = graphene
+	depends = hicolor-icon-theme
+	optdepends = libdvdcss: play encrypted DVDs
+	optdepends = v4l-utils: capture devices
+	optdepends = dvb-tools: scan for DVB TV channels (Navigate > Tuner Scan)
+	source = git+https://github.com/riflan0ahmed/mpc-revamp.git#tag=v1.0.0
+	sha256sums = SKIP
+
+pkgname = mpc-rv

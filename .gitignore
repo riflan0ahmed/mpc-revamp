@@ -4,8 +4,13 @@
 # Rust build output
 target/
 
-# Local Claude Code settings
+# Local editor settings
 .claude/settings.local.json
 
 # Local test media (large, never commit)
 /media/
+
+# Package build folders and the built packages in dist/ (published on GitHub Releases, not in git)
+/.flatpak-build/
+/.pkg-build/
+/dist/

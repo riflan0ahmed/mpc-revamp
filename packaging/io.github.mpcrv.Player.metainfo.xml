@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mpcrv.Player</id>
+  <name>mpc-rv</name>
+  <summary>Media player in the spirit of Media Player Classic</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.riflan0ahmed">
+    <name>The mpc-revamp developers</name>
+  </developer>
+  <description>
+    <p>
+      mpc-rv is an unofficial rewrite of Media Player Classic - Home Cinema (MPC-HC) for Linux, in
+      Rust, with libmpv for playback and GTK4 for the interface. It is not MPC-HC and isn't affiliated
+      with its developers.
+    </p>
+    <p>It keeps what MPC-HC users know:</p>
+    <ul>
+      <li>MPC-HC's menus, keyboard shortcuts and command line switches, with every key remappable</li>
+      <li>Playlist with MPC's playlist format, M3U, PLS, ASX and CUE</li>
+      <li>Subtitle styling, delay and a subresync bar to fix timings</li>
+      <li>Zoom, pan and scan, aspect ratio and MPC's pixel shaders</li>
+      <li>DVD and Blu-ray folders, audio CDs, capture devices and DVB TV</li>
+      <li>Media keys and desktop media controls (MPRIS)</li>
+      <li>MPC-HC's translations</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.mpcrv.Player.desktop</launchable>
+  <provides>
+    <binary>mpc-rv</binary>
+  </provides>
+  <url type="homepage">https://github.com/riflan0ahmed/mpc-revamp</url>
+  <url type="bugtracker">https://github.com/riflan0ahmed/mpc-revamp/issues</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <branding>
+    <color type="primary" scheme_preference="light">#f6d32d</color>
+    <color type="primary" scheme_preference="dark">#5e4a0b</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-19">
+      <description>
+        <p>First release: playback, playlist, settings, tracks and subtitles, video tools, discs and
+        devices, MPRIS and translations.</p>
+      </description>
+    </release>
+  </releases>
+</component>
