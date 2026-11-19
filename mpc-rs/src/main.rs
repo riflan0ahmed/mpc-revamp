@@ -1,6 +1,7 @@
 mod cmdline;
 mod commands;
 mod config;
+mod dialogs;
 mod mpris;
 mod options;
 mod playlist;

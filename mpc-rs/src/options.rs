@@ -186,6 +186,7 @@ fn player_page(w: &Work) -> gtk::Widget {
     let history = check(w, "Keep history of recently opened files", |c| c.keep_history, |c, v| c.keep_history = v);
     let playlist = check(w, "Remember last playlist", |c| c.remember_playlist, |c, v| c.remember_playlist = v);
     let pos = check(w, "Remember File position", |c| c.remember_file_pos, |c, v| c.remember_file_pos = v);
+    let dvd_pos = check(w, "Remember DVD position", |c| c.remember_dvd_pos, |c, v| c.remember_dvd_pos = v);
     let size = check(w, "Remember last window size", |c| c.remember_window_size, |c, v| c.remember_window_size = v);
     let osd = check(w, "Show OSD", |c| c.show_osd, |c, v| c.show_osd = v);
     let recent = spin(w, 0.0, 100.0, 1.0, |c| c.recent_files_number as i64, |c, v| c.recent_files_number = v as usize);
@@ -193,7 +194,7 @@ fn player_page(w: &Work) -> gtk::Widget {
         group("Open options", &[open.upcast_ref()]).upcast_ref(),
         group("Title bar", &[title.upcast_ref(), media_title.upcast_ref()]).upcast_ref(),
         group("Other", &[osd.upcast_ref()]).upcast_ref(),
-        group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
+        group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), dvd_pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
     ])
 }
 

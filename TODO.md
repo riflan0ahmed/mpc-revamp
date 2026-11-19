@@ -93,13 +93,18 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Deinterlace toggle (View > Video Frame)
 
 ## Phase 8 — Discs, devices, info
-- [ ] Open DVD/BD; DVD menus (title/root/subtitle/audio/angle/chapter); navigation; remember DVD position
-- [ ] Open Disc (auto-detect), Audio CD
-- [ ] Capture devices via v4l2 (Open Device, capture bar)
-- [ ] A-B repeat, Go To (time/frame), chapters
-- [ ] Favorites: add/organize, for files, DVDs and devices
-- [ ] Properties dialog: Details, Clip, MediaInfo tab (libmediainfo or mpv track info)
-- [ ] Save a Copy
+- [x] Open DVD/BD (folder with VIDEO_TS/BDMV, or an .iso); titles (Navigate > Titles), angles, DVD audio/
+      subtitle commands; remember DVD position (with its title). Encrypted DVDs need libdvdcss
+- [x] Open Disc (mounted DVDs/Blu-rays, audio CDs, drives; refreshed as discs come and go); Audio CD
+      plays as one item with a chapter per track
+- [x] Capture devices via v4l2 (Open Device: device, size, default audio input; capture bar with Record)
+- [x] A-B repeat (Play > A-B Repeat), Go To (time/frame), chapters (Navigate > Chapters)
+- [x] Favorites: add (with position), quick add, organize (rename, delete, reorder), for files, discs and
+      devices
+- [x] Properties dialog: Details, Clip, MediaInfo tab (from mpv's track info and metadata)
+- [x] Save a Copy (anything gio can read, so local files and http streams; with progress)
+- Not possible with mpv: DVD/Blu-ray menus (title/root/subtitle/audio/angle/chapter menus and menu
+  navigation). mpv plays disc titles directly
 
 ## Phase 9 — Control and integration
 - [ ] Online subtitle download/upload (OpenSubtitles REST API; decide on the HTTPS crate and API key first)

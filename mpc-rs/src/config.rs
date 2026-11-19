@@ -89,6 +89,7 @@ pub struct Config {
     pub keep_history: bool,
     pub remember_playlist: bool,
     pub remember_file_pos: bool,
+    pub remember_dvd_pos: bool,
     pub remember_window_size: bool,
     pub window_size: (i32, i32),
     pub recent_files_number: usize,
@@ -204,6 +205,7 @@ impl Default for Config {
             keep_history: true,
             remember_playlist: true,
             remember_file_pos: false,
+            remember_dvd_pos: false,
             remember_window_size: false,
             window_size: (960, 620),
             recent_files_number: 20,
@@ -294,6 +296,14 @@ impl Default for Config {
     }
 }
 
+/// A Favorites menu entry: a file, disc or device, optionally with a start position.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Favorite {
+    pub name: String,
+    pub path: String,
+    pub position: Option<f64>,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct History {
@@ -301,6 +311,9 @@ pub struct History {
     pub recent: Vec<String>,
     /// Last position (seconds) of unfinished files, most recent first.
     pub positions: Vec<(String, f64)>,
+    /// For discs: the title that was playing (with its position in `positions`).
+    pub disc_titles: Vec<(String, i64)>,
+    pub favorites: Vec<Favorite>,
 }
 
 impl History {

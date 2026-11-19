@@ -4,7 +4,8 @@
 use crate::{
     cmdline::CmdLine,
     commands::{self, Binding, COMMANDS, Click, Media, Mouse},
-    config::{self, AfterPlayback, Config, History, RepeatMode, TitleBar, VideoFrame, Zoom},
+    config::{self, AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom},
+    dialogs,
     mpris::Mpris,
     options,
     playlist::{self, Entry, Playlist},
@@ -87,6 +88,15 @@ struct Ui {
     shaders_on: Cell<bool>,
     /// Recent mpv error messages (the shader editor shows compile errors from here).
     mpv_errors: RefCell<Vec<String>>,
+    /// File > Open Disc, Navigate > Chapters / Titles, Favorites: rebuilt when their contents change.
+    disc_menu: gio::Menu,
+    chapter_menu: gio::Menu,
+    title_menu: gio::Menu,
+    fav_menu: gio::Menu,
+    nav_sig: RefCell<String>,
+    /// Capture bar (View > Capture): device name, record button.
+    capture_label: gtk::Label,
+    record: gtk::ToggleButton,
 }
 
 const ASPECTS: [(&str, &str); 7] = [
@@ -446,6 +456,10 @@ fn open_targets(ui: &Ui, targets: &[String], append: bool) {
                     pl.items[c].subs.push(t.clone());
                 }
             }
+        } else if path.is_dir() && let Some(url) = dialogs::disc_url(path) {
+            let mut e = Entry::new(url);
+            e.label = Some(format!("DVD/BD - {}", path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned())));
+            entries.push(e);
         } else if path.is_dir() {
             entries.extend(playlist::folder_files(path).into_iter().map(Entry::new));
         } else if playlist::is_playlist(t) && !t.contains("://") {
@@ -504,12 +518,22 @@ fn playlist_changed(ui: &Ui) {
 /// Remember where the loaded file was stopped (MPC "Remember file position", off by default).
 fn save_position(ui: &Ui) {
     let Some(path) = ui.loaded.borrow().clone() else { return };
-    if !ui.cfg.borrow().remember_file_pos || prop::<bool>(ui.mpv, "eof-reached").unwrap_or(false) {
+    let disc = dialogs::is_disc_url(&path);
+    let on = if disc { ui.cfg.borrow().remember_dvd_pos } else { ui.cfg.borrow().remember_file_pos };
+    if !on || path.starts_with("av://") || prop::<bool>(ui.mpv, "eof-reached").unwrap_or(false) {
         return;
     }
     if let Some(pos) = prop::<f64>(ui.mpv, "time-pos").filter(|p| *p > 0.0) {
         let max = ui.cfg.borrow().recent_files_number;
-        ui.history.borrow_mut().set_position(&path, Some(pos), max);
+        let mut h = ui.history.borrow_mut();
+        h.set_position(&path, Some(pos), max);
+        // A disc position only means something within its title.
+        if disc && let Some(title) = prop::<i64>(ui.mpv, "disc-title") {
+            h.disc_titles.retain(|(p, _)| *p != path);
+            h.disc_titles.insert(0, (path.clone(), title));
+            h.disc_titles.truncate(max);
+        }
+        drop(h);
         config::save_history(&ui.history.borrow());
     }
 }
@@ -517,14 +541,24 @@ fn save_position(ui: &Ui) {
 /// Play playlist item `idx`.
 fn play(ui: &Ui, idx: usize) {
     save_position(ui);
-    let Some(path) = ui.pl.borrow().items.get(idx).map(|e| e.path.clone()) else { return };
+    let Some((path, options)) = ui.pl.borrow().items.get(idx).map(|e| (e.path.clone(), e.options.clone())) else { return };
     ui.pl.borrow_mut().current = Some(idx);
     *ui.loaded.borrow_mut() = Some(path.clone());
     ui.stopped.set(false);
     // The old file may still report eof-reached for a moment; the flag clears once the new one plays.
     ui.eof_handled.set(true);
     ui.file_loops.set(0);
-    cmd(ui.mpv, "loadfile", &[&path, "replace"]);
+    if options.is_empty() {
+        cmd(ui.mpv, "loadfile", &[&path, "replace"]);
+    } else {
+        cmd(ui.mpv, "loadfile", &[&path, "replace", "-1", &options]);
+    }
+    // The capture bar shows while a device is open.
+    let device = path.starts_with("av://");
+    ui.capture_label.set_label(&if device { format!("Device: {}", path.trim_start_matches("av://")) } else { "No capture device is open (File > Open Device).".into() });
+    if !device && ui.record.is_active() {
+        ui.record.set_active(false);
+    }
     let _ = ui.mpv.set_property("pause", ui.start_paused.replace(false));
     if ui.cfg.borrow().keep_history {
         let max = ui.cfg.borrow().recent_files_number;
@@ -533,6 +567,172 @@ fn play(ui: &Ui, idx: usize) {
         refresh_recent(ui);
     }
     ui.plbar.refresh();
+}
+
+/// Navigate > Chapters / Titles: rebuilt when the file's chapters or disc titles change.
+fn update_nav_menus(ui: &Ui) {
+    let chapters: Vec<(i64, String)> = (0..prop::<i64>(ui.mpv, "chapter-list/count").unwrap_or(0))
+        .map(|i| {
+            let t = prop::<f64>(ui.mpv, &format!("chapter-list/{i}/time")).unwrap_or(0.0);
+            let name = prop::<String>(ui.mpv, &format!("chapter-list/{i}/title")).unwrap_or_else(|| format!("Chapter {}", i + 1));
+            (i, format!("{} - {name}", hms(t)))
+        })
+        .collect();
+    let titles: Vec<(i64, String)> = (0..prop::<i64>(ui.mpv, "disc-titles/count").unwrap_or(0))
+        .map(|i| {
+            let id = prop::<i64>(ui.mpv, &format!("disc-titles/{i}/id")).unwrap_or(i);
+            let len = prop::<f64>(ui.mpv, &format!("disc-titles/{i}/length")).unwrap_or(0.0);
+            (id, format!("Title {} ({})", id + 1, hms(len)))
+        })
+        .collect();
+    let sig = format!("{chapters:?}{titles:?}");
+    if *ui.nav_sig.borrow() == sig {
+        return;
+    }
+    *ui.nav_sig.borrow_mut() = sig;
+    for (menu, items, action) in [(&ui.chapter_menu, &chapters, "win.chapter"), (&ui.title_menu, &titles, "win.disc-title")] {
+        menu.remove_all();
+        for (i, label) in items {
+            let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
+            item.set_action_and_target_value(Some(action), Some(&i.to_string().to_variant()));
+            menu.append_item(&item);
+        }
+    }
+}
+
+/// File > Open Disc: the discs and drives currently present.
+fn refresh_discs(ui: &Ui) {
+    ui.disc_menu.remove_all();
+    let discs = dialogs::discs();
+    if discs.is_empty() {
+        ui.disc_menu.append(Some("(no disc)"), Some("win.no-op"));
+    }
+    for (label, url) in discs {
+        let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
+        item.set_action_and_target_value(Some("win.open-disc"), Some(&url.to_variant()));
+        ui.disc_menu.append_item(&item);
+    }
+}
+
+/// The Favorites menu: Add / Organize, then the saved entries.
+fn refresh_favorites(ui: &Ui) {
+    ui.fav_menu.remove_all();
+    let top = gio::Menu::new();
+    top.append(Some("_Add to Favorites..."), Some("win.favorites-add"));
+    top.append(Some("_Organize Favorites..."), Some("win.favorites-organize"));
+    ui.fav_menu.append_section(None, &top);
+    let list = gio::Menu::new();
+    for (i, f) in ui.history.borrow().favorites.iter().enumerate() {
+        let item = gio::MenuItem::new(Some(&f.name.replace('_', "__")), None);
+        item.set_action_and_target_value(Some("win.open-favorite"), Some(&(i as u32).to_variant()));
+        list.append_item(&item);
+    }
+    ui.fav_menu.append_section(None, &list);
+}
+
+fn add_favorite(ui: &Ui, name: String, with_pos: bool) {
+    let Some(path) = ui.loaded.borrow().clone() else { return };
+    let position = prop::<f64>(ui.mpv, "time-pos").filter(|_| with_pos);
+    ui.history.borrow_mut().favorites.push(Favorite { name, path, position });
+    config::save_history(&ui.history.borrow());
+    refresh_favorites(ui);
+}
+
+/// Favorites > Add to Favorites: a name and whether to start at the current position.
+fn add_favorite_dialog(ui: &Rc<Ui>) {
+    let Some(path) = ui.loaded.borrow().clone() else { return };
+    let dlg = gtk::Window::builder().title("Add Favorite").transient_for(&ui.win).modal(true).resizable(false).build();
+    let name = gtk::Entry::builder().text(Entry::new(path).title()).width_chars(40).activates_default(true).build();
+    let pos = gtk::CheckButton::with_label("Remember position");
+    pos.set_active(true);
+    let ok = gtk::Button::with_label("OK");
+    ok.add_css_class("suggested-action");
+    let cancel = gtk::Button::with_label("Cancel");
+    ok.connect_clicked({
+        let (ui, dlg, name, pos) = (ui.clone(), dlg.clone(), name.clone(), pos.clone());
+        move |_| {
+            add_favorite(&ui, name.text().to_string(), pos.is_active());
+            dlg.close();
+        }
+    });
+    cancel.connect_clicked({
+        let dlg = dlg.clone();
+        move |_| dlg.close()
+    });
+    let buttons = gtk::Box::builder().spacing(8).halign(gtk::Align::End).build();
+    buttons.append(&cancel);
+    buttons.append(&ok);
+    let vbox = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).margin_top(12).margin_bottom(12).margin_start(12).margin_end(12).build();
+    vbox.append(&gtk::Label::builder().label("Name:").xalign(0.0).build());
+    vbox.append(&name);
+    vbox.append(&pos);
+    vbox.append(&buttons);
+    dlg.set_child(Some(&vbox));
+    dlg.set_default_widget(Some(&ok));
+    dlg.present();
+}
+
+/// File > Open Device: a v4l2 capture device (with an optional size), plus the default audio input.
+fn open_device_dialog(ui: &Rc<Ui>) {
+    let devices = dialogs::video_devices();
+    let dlg = gtk::Window::builder().title("Open Device").transient_for(&ui.win).modal(true).resizable(false).build();
+    let labels: Vec<String> = devices.iter().map(|(n, d)| format!("{n} ({d})")).collect();
+    let video = gtk::DropDown::from_strings(&labels.iter().map(String::as_str).collect::<Vec<_>>());
+    let audio = gtk::DropDown::from_strings(&["None", "Default input (PulseAudio/PipeWire)"]);
+    let size = gtk::Entry::builder().placeholder_text("Device default, or e.g. 1280x720").build();
+    let ok = gtk::Button::with_label("OK");
+    ok.add_css_class("suggested-action");
+    let none = devices.is_empty();
+    ok.set_sensitive(!none);
+    let cancel = gtk::Button::with_label("Cancel");
+    ok.connect_clicked({
+        let (ui, dlg, video, audio, size) = (ui.clone(), dlg.clone(), video.clone(), audio.clone(), size.clone());
+        move |_| {
+            let Some((name, dev)) = devices.get(video.selected() as usize) else { return };
+            // Live sources: no cache, show frames as they come.
+            let mut opts = vec!["cache=no".to_string(), "untimed=yes".to_string()];
+            let wh = size.text().trim().to_lowercase();
+            if !wh.is_empty() {
+                opts.push(format!("demuxer-lavf-o=video_size={wh}"));
+            }
+            if audio.selected() == 1 {
+                opts.push("audio-file=av://pulse:default".into());
+            }
+            let mut e = Entry::new(format!("av://v4l2:{dev}"));
+            e.label = Some(name.clone());
+            e.options = opts.join(",");
+            let first = {
+                let mut pl = ui.pl.borrow_mut();
+                pl.clear();
+                pl.add(vec![e])
+            };
+            playlist_changed(&ui);
+            play(&ui, first);
+            ui.win.change_action_state("view-capture", &true.to_variant());
+            dlg.close();
+        }
+    });
+    cancel.connect_clicked({
+        let dlg = dlg.clone();
+        move |_| dlg.close()
+    });
+    let grid = gtk::Grid::builder().row_spacing(8).column_spacing(8).margin_top(12).margin_bottom(12).margin_start(12).margin_end(12).build();
+    let label = |s: &str| gtk::Label::builder().label(s).xalign(0.0).build();
+    grid.attach(&label("Video:"), 0, 0, 1, 1);
+    grid.attach(&video, 1, 0, 1, 1);
+    grid.attach(&label("Audio:"), 0, 1, 1, 1);
+    grid.attach(&audio, 1, 1, 1, 1);
+    grid.attach(&label("Size:"), 0, 2, 1, 1);
+    grid.attach(&size, 1, 2, 1, 1);
+    if none {
+        grid.attach(&gtk::Label::builder().label("No capture devices found.").css_classes(["error"]).build(), 0, 3, 2, 1);
+    }
+    let buttons = gtk::Box::builder().spacing(8).halign(gtk::Align::End).build();
+    buttons.append(&cancel);
+    buttons.append(&ok);
+    grid.attach(&buttons, 0, 4, 2, 1);
+    dlg.set_child(Some(&grid));
+    dlg.present();
 }
 
 /// Options > Playback "Auto-zoom": size the window to the default zoom once the new video's size is known.
@@ -562,7 +762,15 @@ fn on_loaded(ui: &Ui) {
         cmd(ui.mpv, "audio-add", &[&a]);
     }
     let path = ui.loaded.borrow().clone().unwrap_or_default();
-    let remembered = if ui.cfg.borrow().remember_file_pos { ui.history.borrow().position(&path) } else { None };
+    let disc = dialogs::is_disc_url(&path);
+    let on = if disc { ui.cfg.borrow().remember_dvd_pos } else { ui.cfg.borrow().remember_file_pos };
+    let remembered = if on { ui.history.borrow().position(&path) } else { None };
+    if disc && remembered.is_some() {
+        let title = ui.history.borrow().disc_titles.iter().find(|(p, _)| *p == path).map(|(_, t)| *t);
+        if let Some(t) = title.filter(|t| prop::<i64>(ui.mpv, "disc-title") != Some(*t)) {
+            let _ = ui.mpv.set_property("disc-title", t);
+        }
+    }
     if let Some(pos) = ui.start_at.take().or(remembered) {
         cmd(ui.mpv, "seek", &[&pos.to_string(), "absolute"]);
     }
@@ -754,7 +962,8 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     // --- widgets ---
     let recent = gio::Menu::new();
     let track_menus = [gio::Menu::new(), gio::Menu::new(), gio::Menu::new()];
-    let model = menu_model(&recent, &track_menus);
+    let nav_menus = NavMenus { disc: gio::Menu::new(), chapters: gio::Menu::new(), titles: gio::Menu::new(), favorites: gio::Menu::new() };
+    let model = menu_model(&recent, &track_menus, &nav_menus);
     let menubar = gtk::PopoverMenuBar::from_model(Some(&model));
 
     let video = video::new(mpv);
@@ -843,8 +1052,28 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     paned.set_shrink_end_child(false);
 
     let resync = subresync::new(mpv);
+    // Capture bar (MPC's PlayerCaptureBar, reduced to what mpv offers): the device and recording.
+    let capture = gtk::Box::builder().spacing(8).margin_start(6).margin_end(6).margin_top(2).margin_bottom(2).build();
+    let capture_label = gtk::Label::builder().xalign(0.0).hexpand(true).ellipsize(gtk::pango::EllipsizeMode::End).build();
+    let record = gtk::ToggleButton::builder().label("Record").focusable(false).build();
+    capture.append(&capture_label);
+    capture.append(&record);
+    record.connect_toggled(move |b| {
+        let path = if b.is_active() {
+            let dir = glib::user_special_dir(glib::UserDirectory::Videos).unwrap_or_else(glib::home_dir);
+            let stamp = glib::DateTime::now_local().ok().and_then(|d| d.format("%Y-%m-%d_%H.%M.%S").ok()).map_or("capture".into(), |s| s.to_string());
+            dir.join(format!("capture_{stamp}.mkv")).to_string_lossy().into_owned()
+        } else {
+            String::new()
+        };
+        let _ = mpv.set_property("stream-record", path.as_str());
+        b.set_label(if b.is_active() { "Stop recording" } else { "Record" });
+        if !path.is_empty() {
+            osd(mpv, &format!("Recording to {path}"));
+        }
+    });
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
+    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
@@ -886,6 +1115,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             ("view-status", status.upcast()),
             ("view-playlist", plbar.widget.clone().upcast()),
             ("view-subresync", resync.widget.clone().upcast()),
+            ("view-capture", capture.clone().upcast()),
         ],
         seek: seek.clone(),
         volume: volume.clone(),
@@ -919,11 +1149,30 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         zoomed_for: RefCell::new(None),
         shaders_on: Cell::new(true),
         mpv_errors: RefCell::new(Vec::new()),
+        disc_menu: nav_menus.disc,
+        chapter_menu: nav_menus.chapters,
+        title_menu: nav_menus.titles,
+        fav_menu: nav_menus.favorites,
+        nav_sig: RefCell::new(String::new()),
+        capture_label,
+        record,
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
     add_actions(app, &ui);
     apply_settings(&ui);
+    refresh_discs(&ui);
+    refresh_favorites(&ui);
+    ui.capture_label.set_label("No capture device is open (File > Open Device).");
+    // Keep File > Open Disc current as discs come and go.
+    let monitor = gio::VolumeMonitor::get();
+    for signal in ["mount-added", "mount-removed", "drive-changed"] {
+        let ui = ui.clone();
+        monitor.connect_local(signal, false, move |_| {
+            refresh_discs(&ui);
+            None
+        });
+    }
     let _ = mpv.set_property("volume", ui.cfg.borrow().volume as i64);
     win.connect_close_request({
         let ui = ui.clone();
@@ -1113,7 +1362,7 @@ fn relayout(ui: &Ui) {
         let fs_ok = match *name {
             "view-seeker" | "view-controls" => ui.fs_reveal.get(),
             "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
-            "view-subresync" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
+            "view-subresync" | "view-capture" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
             _ => false,
         };
         w.set_visible(on && (!fs || fs_ok));
@@ -1145,6 +1394,7 @@ fn update(ui: &Ui) {
         }
     }
     update_tracks(ui);
+    update_nav_menus(ui);
     ui.subresync.tick();
     // keep-open pauses on the last frame instead of ending the file; that's the "end of file" moment.
     if prop::<bool>(mpv, "eof-reached").unwrap_or(false) {
@@ -1255,7 +1505,15 @@ fn window_title(ui: &Ui, idle: bool) -> String {
 }
 
 /// The menus, shared by the menu bar and the context menu. `recent` is filled by `refresh_recent`.
-fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
+/// Menus whose contents change (see `refresh_discs`, `update_nav_menus`, `refresh_favorites`).
+struct NavMenus {
+    disc: gio::Menu,
+    chapters: gio::Menu,
+    titles: gio::Menu,
+    favorites: gio::Menu,
+}
+
+fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gio::Menu {
     fn section(items: &[(&str, &str)]) -> gio::Menu {
         let m = gio::Menu::new();
         for (label, action) in items {
@@ -1270,19 +1528,29 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
         ("_Quick Open File...", "win.file-openquick"),
         ("_Open File/URL...", "win.file-openmedia"),
         ("Open Dir_ectory...", "win.open-dir"),
+        ("Open _DVD/BD...", "win.file-opendvdbd"),
+        ("Open De_vice...", "win.file-opendevice"),
     ]));
+    file.append_section(None, &{
+        let m = gio::Menu::new();
+        m.append_submenu(Some("Open Dis_c"), &nav.disc);
+        m.append(Some("Re_open File"), Some("win.file-reopen"));
+        m
+    });
     file.append_section(None, &{
         let m = gio::Menu::new();
         m.append_submenu(Some("Recent _Files"), recent);
         m
     });
     file.append_section(None, &section(&[
+        ("Save a _Copy...", "win.file-save-copy"),
         ("Save _Image...", "win.file-save-image"),
         ("Save Image (_auto)", "win.file-save-image-auto"),
         ("Save _Thumbnails...", "win.file-save-thumbnails"),
         ("Cop_y Image to Clipboard", "win.copy-image"),
     ]));
     file.append_section(None, &section(&[("_Load Subtitle...", "win.file-subtitles-load"), ("_Save Subtitle...", "win.file-subtitles-save")]));
+    file.append_section(None, &section(&[("P_roperties", "win.file-properties")]));
     file.append_section(None, &section(&[("_Close", "win.file-close-and-restore")]));
     file.append_section(None, &section(&[("E_xit", "win.file-exit")]));
     root.append_submenu(Some("_File"), &file);
@@ -1291,6 +1559,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
     let bars: Vec<(String, String)> = BARS.iter().map(|(a, l, _)| (l.replace("&&", "&"), format!("win.{a}"))).collect();
     let mut bars: Vec<(&str, &str)> = bars.iter().map(|(l, a)| (l.as_str(), a.as_str())).collect();
     bars.push(("Su_bresync", "win.view-subresync"));
+    bars.push(("Captu_re", "win.view-capture"));
     bars.push(("_Playlist", "win.view-playlist"));
     view.append_section(None, &section(&bars));
     let presets = section(&[
@@ -1384,6 +1653,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
         repeat.append_section(None, &section(&[("F_orever", "win.play-repeat-forever")]));
         repeat.append_section(None, &section(&[("_File", "win.play-repeat-onefile"), ("_Playlist", "win.play-repeat-wholeplaylist")]));
         m.append_submenu(Some("_Repeat"), &repeat);
+        m.append_submenu(Some("A-_B Repeat"), &section(&[("Set _A (start)", "win.ab-set-a"), ("Set _B (end)", "win.ab-set-b"), ("_Clear", "win.ab-clear")]));
         m
     });
     play.append_section(None, &section(&[
@@ -1410,7 +1680,15 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
     });
     root.append_submenu(Some("_Play"), &play);
 
-    root.append_submenu(Some("_Navigate"), &section(&[("_Previous", "win.navigate-skipback"), ("_Next", "win.navigate-skipforward")]));
+    let navigate = section(&[("_Previous", "win.navigate-skipback"), ("_Next", "win.navigate-skipforward"), ("_Go To...", "win.navigate-goto")]);
+    navigate.append_section(None, &{
+        let m = gio::Menu::new();
+        m.append_submenu(Some("_Chapters"), &nav.chapters);
+        m.append_submenu(Some("_Titles"), &nav.titles);
+        m
+    });
+    root.append_submenu(Some("_Navigate"), &navigate);
+    root.append_submenu(Some("F_avorites"), &nav.favorites);
     root.append_submenu(Some("_Help"), &section(&[("_About...", "win.about")]));
     root
 }
@@ -1941,6 +2219,154 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
             shaders::editor(ui.win.upcast_ref(), move || apply_shaders(&u1), move || u2.mpv_errors.take());
         }
     }));
+
+    // Discs, devices
+    add("file-opendvdbd", Box::new({
+        let ui = ui.clone();
+        move || {
+            let ui2 = ui.clone();
+            gtk::FileDialog::builder().title("Open DVD/BD (choose the disc or its VIDEO_TS / BDMV folder)").build().select_folder(Some(&ui.win), gio::Cancellable::NONE, move |res| {
+                let Some(dir) = res.ok().and_then(|f| f.path()) else { return };
+                match dialogs::disc_url(&dir) {
+                    Some(_) => open_targets(&ui2, &[dir.to_string_lossy().into_owned()], false),
+                    None => gtk::AlertDialog::builder().message("Not a DVD or Blu-ray").detail("Choose a folder with a VIDEO_TS (DVD) or BDMV (Blu-ray) folder in it.").build().show(Some(&ui2.win)),
+                }
+            });
+        }
+    }));
+    let open_disc = gio::SimpleAction::new("open-disc", Some(glib::VariantTy::STRING));
+    open_disc.connect_activate({
+        let ui = ui.clone();
+        move |_, v| {
+            if let Some(url) = v.and_then(|v| v.get::<String>()) {
+                open_targets(&ui, &[url], false);
+            }
+        }
+    });
+    win.add_action(&open_disc);
+    let no_op = gio::SimpleAction::new("no-op", None);
+    no_op.set_enabled(false);
+    win.add_action(&no_op);
+    add("file-opendevice", Box::new({
+        let ui = ui.clone();
+        move || open_device_dialog(&ui)
+    }));
+    add("file-reopen", Box::new({
+        let ui = ui.clone();
+        move || {
+            let cur = ui.pl.borrow().current;
+            if let Some(i) = cur {
+                play(&ui, i);
+            }
+        }
+    }));
+    let show_capture = gio::SimpleAction::new_stateful("view-capture", None, &false.to_variant());
+    show_capture.connect_change_state({
+        let ui = ui.clone();
+        move |a, v| {
+            if let Some(v) = v {
+                a.set_state(v);
+                relayout(&ui);
+            }
+        }
+    });
+    win.add_action(&show_capture);
+
+    // Navigate
+    add("navigate-goto", Box::new({
+        let win = win.clone();
+        move || dialogs::goto(win.upcast_ref(), mpv)
+    }));
+    for (name, property) in [("chapter", "chapter"), ("disc-title", "disc-title")] {
+        let a = gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
+        a.connect_activate(move |_, v| {
+            if let Some(i) = v.and_then(|v| v.get::<String>()) {
+                let _ = mpv.set_property(property, i.as_str());
+            }
+        });
+        win.add_action(&a);
+    }
+    add("dvd-angle-next", Box::new(move || cmd(mpv, "cycle", &["angle"])));
+    add("dvd-angle-prev", Box::new(move || cmd(mpv, "cycle", &["angle", "down"])));
+    add("dvd-audio-next", Box::new(move || cycle_track(mpv, "audio", "aid", 1)));
+    add("dvd-audio-prev", Box::new(move || cycle_track(mpv, "audio", "aid", -1)));
+    add("dvd-sub-next", Box::new(move || cycle_track(mpv, "sub", "sid", 1)));
+    add("dvd-sub-prev", Box::new(move || cycle_track(mpv, "sub", "sid", -1)));
+    add("dvd-sub-onoff", Box::new(move || cmd(mpv, "cycle", &["sub-visibility"])));
+
+    // A-B repeat (mpv's ab-loop)
+    for (name, point) in [("ab-set-a", "ab-loop-a"), ("ab-set-b", "ab-loop-b")] {
+        add(name, Box::new(move || {
+            let t = prop::<f64>(mpv, "time-pos").unwrap_or(0.0);
+            let _ = mpv.set_property(point, t);
+            osd(mpv, &format!("A-B repeat: {} = {}", if point.ends_with('a') { "A" } else { "B" }, hms(t)));
+        }));
+    }
+    add("ab-clear", Box::new(move || {
+        let _ = mpv.set_property("ab-loop-a", "no");
+        let _ = mpv.set_property("ab-loop-b", "no");
+        osd(mpv, "A-B repeat: off");
+    }));
+
+    // File: properties, save a copy
+    add("file-properties", Box::new({
+        let ui = ui.clone();
+        move || {
+            let path = ui.loaded.borrow().clone();
+            if let Some(p) = path {
+                dialogs::properties(ui.win.upcast_ref(), mpv, &p);
+            }
+        }
+    }));
+    add("file-save-copy", Box::new({
+        let ui = ui.clone();
+        move || {
+            let path = ui.loaded.borrow().clone();
+            match path {
+                Some(p) if !dialogs::is_disc_url(&p) && !p.starts_with("av://") => dialogs::save_copy(ui.win.upcast_ref(), &p),
+                _ => gtk::AlertDialog::builder().message("Nothing to save").detail("Save a Copy works for files and web streams, not discs or devices.").build().show(Some(&ui.win)),
+            }
+        }
+    }));
+
+    // Favorites
+    add("favorites-add", Box::new({
+        let ui = ui.clone();
+        move || add_favorite_dialog(&ui)
+    }));
+    add("favorites-quickaddfavorite", Box::new({
+        let ui = ui.clone();
+        move || {
+            let name = ui.loaded.borrow().clone().map(|p| Entry::new(p).title());
+            if let Some(n) = name {
+                add_favorite(&ui, n.clone(), true);
+                osd(mpv, &format!("Added to favorites: {n}"));
+            }
+        }
+    }));
+    add("favorites-organize", Box::new({
+        let ui = ui.clone();
+        move || {
+            let favs = ui.history.borrow().favorites.clone();
+            let ui2 = ui.clone();
+            dialogs::organize_favorites(ui.win.upcast_ref(), favs, move |new| {
+                ui2.history.borrow_mut().favorites = new;
+                config::save_history(&ui2.history.borrow());
+                refresh_favorites(&ui2);
+            });
+        }
+    }));
+    let open_fav = gio::SimpleAction::new("open-favorite", Some(glib::VariantTy::UINT32));
+    open_fav.connect_activate({
+        let ui = ui.clone();
+        move |_, v| {
+            let i = v.and_then(|v| v.get::<u32>()).unwrap_or(0) as usize;
+            let Some(f) = ui.history.borrow().favorites.get(i).cloned() else { return };
+            ui.start_at.set(f.position);
+            open_targets(&ui, &[f.path], false);
+        }
+    });
+    win.add_action(&open_fav);
 
     // Help
     add("about", Box::new({

@@ -36,12 +36,14 @@ pub struct Entry {
     pub subs: Vec<String>,
     /// Extra audio files (/dub); not saved in playlist files.
     pub audio: Vec<String>,
+    /// Per-file mpv options for loadfile (capture devices); not saved in playlist files.
+    pub options: String,
     order: u64, // insertion order, for "Restore"
 }
 
 impl Entry {
     pub fn new(path: impl Into<String>) -> Entry {
-        Entry { path: path.into(), label: None, duration: None, subs: Vec::new(), audio: Vec::new(), order: 0 }
+        Entry { path: path.into(), label: None, duration: None, subs: Vec::new(), audio: Vec::new(), options: String::new(), order: 0 }
     }
 
     /// What the playlist shows: the label, else the file name (or the whole URL).
