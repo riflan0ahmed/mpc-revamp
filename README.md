@@ -60,6 +60,10 @@ Flatpak fetches the GNOME runtime from Flathub if you don't have it yet. After t
 shows up in your applications menu. To update, install the newer file the same way. To remove it:
 `flatpak uninstall io.github.mpcrv.Player`.
 
+> [!TIP]
+> If you just installed Flatpak for the first time, log out and back in (or restart). Until then,
+> mpc-rv doesn't show up in your applications menu and has no icon.
+
 Differences in the Flatpak version:
 
 - Settings are kept in `~/.var/app/io.github.mpcrv.Player/config/mpc-rv/`, not `~/.config/mpc-rv/`.
