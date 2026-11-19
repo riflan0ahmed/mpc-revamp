@@ -107,13 +107,19 @@ Each phase ends with a build that runs, then stops for review.
   navigation). mpv plays disc titles directly
 
 ## Phase 9 — Control and integration
-- [ ] Online subtitle download/upload (OpenSubtitles REST API; decide on the HTTPS crate and API key first)
-- [ ] Web remote: same routes as `WebServer.cpp` (`/`, `/controls.html`, `/command.html`, `/status.html`, `/variables.html`, `/info.html`, `/browser.html`, `/player.html`, `/snapshot.jpg`) and the same `wm_command` IDs
-- [ ] MPRIS D-Bus service (play/pause, seek, metadata)
-- [ ] JSON control socket as the replacement for the `MpcApi.h` commands
-- [ ] `.desktop` file, MIME associations, icons
-- [ ] Play > After Playback menu (one-shot): also suspend / hibernate / shutdown / log off / lock / monitor off
-- [ ] Translations (gettext; reuse the PO files in `mpcresources/PO`)
+- [ ] Web remote: same routes as `WebServer.cpp` (`/`, `/controls.html`, `/command.html`, `/status.html`,
+      `/variables.html`, `/info.html`, `/browser.html`, `/player.html`, `/snapshot.jpg`) and the same
+      `wm_command` IDs. Built once, removed for now (not needed yet)
+- [x] MPRIS D-Bus service: play state, metadata, position, Seek/SetPosition (Seeked signal), volume,
+      rate, loop status, shuffle, OpenUri
+- [x] JSON control socket (`$XDG_RUNTIME_DIR/mpc-rs.sock`, one JSON object per line) with `MpcApi.h`'s
+      commands and events (STATE, NOWPLAYING, NOTIFYSEEK, NOTIFYENDOFSTREAM); see `remote.rs`
+- [x] `.desktop` entry, MPC's icon, MIME associations: Options > Formats and `/regvid` `/regaud`
+      `/regpl` `/regall` `/unregall` (installs into `~/.local/share`, defaults in `mimeapps.list`)
+- [x] Play > After Playback menu (one-shot): do nothing, play next, turn off the monitor, exit,
+      stand by, hibernate, shutdown, log off, lock (systemd-logind / GNOME over D-Bus)
+- [x] Translations from MPC's PO files (42 languages, `res/po`): menus, Options and the Keys page.
+      Options > Player > Language (system default unless set); takes effect at the next start
 
 ## Phase 10 — DVB TV
 - [ ] Tuner setup and channel scan (`dvb://`)
@@ -130,3 +136,6 @@ Each phase ends with a build that runs, then stops for review.
 - QuickTime, RealMedia, Shockwave Flash graphs
 - Logitech LCD, Skype mood message, WinLIRC/uICE
 - DrDump crash reporter, update checker
+
+## Last — Online subtitles
+- [ ] Online subtitle download/upload (OpenSubtitles REST API; decide on the HTTPS crate and API key first)

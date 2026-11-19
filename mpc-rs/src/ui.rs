@@ -4,12 +4,15 @@
 use crate::{
     cmdline::CmdLine,
     commands::{self, Binding, COMMANDS, Click, Media, Mouse},
+    i18n::tr,
     config::{self, AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom},
     dialogs,
-    mpris::Mpris,
+    integration::{self, SystemAction},
+    mpris::{self, Mpris, PlayerState},
     options,
     playlist::{self, Entry, Playlist},
     playlistbar::{self, Bar, Request},
+    remote::{self, Job},
     shaders,
     subresync::{self, Subresync},
     video,
@@ -17,10 +20,12 @@ use crate::{
 };
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
 use libmpv2::{GetData, Mpv};
+use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
     path::Path,
     rc::Rc,
+    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -97,6 +102,182 @@ struct Ui {
     /// Capture bar (View > Capture): device name, record button.
     capture_label: gtk::Label,
     record: gtk::ToggleButton,
+    /// The window's rows, and the fullscreen panel that the seek bar, controls and status move into.
+    vbox: gtk::Box,
+    fs_panel: gtk::Box,
+    fs_revealer: gtk::Revealer,
+    /// Play, Pause, Stop: the one matching the play state is shown pressed.
+    state_buttons: [gtk::ToggleButton; 3],
+    /// JSON socket: its requests, answered on this thread in `update`.
+    jobs: mpsc::Receiver<Job>,
+    ipc: Option<remote::Clients>,
+    /// Last play state sent to JSON clients.
+    last_state: Cell<&'static str>,
+}
+
+/// MPRIS's loop status and shuffle, from the settings.
+fn player_state(ui: &Ui) -> PlayerState {
+    let c = ui.cfg.borrow();
+    let loop_status = match (c.repeat_forever, c.repeat_mode) {
+        (false, _) => "None",
+        (true, RepeatMode::File) => "Track",
+        (true, RepeatMode::Playlist) => "Playlist",
+    };
+    PlayerState { loop_status, shuffle: c.shuffle }
+}
+
+fn broadcast(ui: &Ui, event: Value) {
+    if let Some(c) = &ui.ipc {
+        remote::broadcast(c, &event);
+    }
+}
+
+/// Answer a JSON socket request (runs on the GTK thread).
+fn handle_job(ui: &Rc<Ui>, job: Job) {
+    let reply = json_command(ui, &job.request).unwrap_or_else(|e| json!({"ok": false, "error": e}));
+    let _ = job.reply.send(reply);
+}
+
+/// Tracks of one type as JSON (index = position among that type, as MpcApi numbers them).
+fn track_list(mpv: &Mpv, kind: &str) -> Vec<Value> {
+    (0..prop::<i64>(mpv, "track-list/count").unwrap_or(0))
+        .filter(|i| prop::<String>(mpv, &format!("track-list/{i}/type")).as_deref() == Some(kind))
+        .map(|i| {
+            let s = |k: &str| prop::<String>(mpv, &format!("track-list/{i}/{k}"));
+            json!({"id": prop::<i64>(mpv, &format!("track-list/{i}/id")), "title": s("title"), "lang": s("lang"), "codec": s("codec"),
+                   "selected": prop::<bool>(mpv, &format!("track-list/{i}/selected")).unwrap_or(false)})
+        })
+        .collect()
+}
+
+/// The JSON socket's commands: MpcApi.h's, by name.
+fn json_command(ui: &Rc<Ui>, v: &Value) -> Result<Value, String> {
+    let mpv = ui.mpv;
+    let name = v.get("cmd").and_then(Value::as_str).ok_or("missing \"cmd\"")?.to_ascii_uppercase();
+    let name = name.trim_start_matches("CMD_");
+    let num = |k: &str| v.get(k).and_then(Value::as_f64).ok_or(format!("missing number \"{k}\""));
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(String::from).ok_or(format!("missing string \"{k}\""));
+    let ok = json!({"ok": true});
+    let run = |action: &str| {
+        act(&ui.win, action);
+        Ok(json!({"ok": true}))
+    };
+    match name {
+        "OPENFILE" => {
+            open_targets(ui, &[text("path")?], false);
+            Ok(ok)
+        }
+        "ADDTOPLAYLIST" => {
+            open_targets(ui, &[text("path")?], true);
+            Ok(ok)
+        }
+        "STOP" => run("play-stop"),
+        "CLOSEFILE" => {
+            close_media(ui);
+            Ok(ok)
+        }
+        "PLAYPAUSE" => run("play-playpause"),
+        "PLAY" => run("play-play"),
+        "PAUSE" => run("play-pause"),
+        "CLEARPLAYLIST" => {
+            ui.pl.borrow_mut().clear();
+            playlist_changed(ui);
+            Ok(ok)
+        }
+        "STARTPLAYLIST" => {
+            if !ui.pl.borrow().items.is_empty() {
+                play(ui, 0);
+            }
+            Ok(ok)
+        }
+        "REMOVEFROMPLAYLIST" => {
+            ui.pl.borrow_mut().remove(&[num("index")? as usize]);
+            playlist_changed(ui);
+            Ok(ok)
+        }
+        "SETINDEXPLAYLIST" => {
+            let i = num("index")? as usize;
+            if i >= ui.pl.borrow().items.len() {
+                return Err("no such playlist item".into());
+            }
+            play(ui, i);
+            Ok(ok)
+        }
+        "SETPOSITION" => {
+            cmd(mpv, "seek", &[&num("seconds")?.to_string(), "absolute+exact"]);
+            Ok(ok)
+        }
+        "JUMPOFNSECONDS" => {
+            cmd(mpv, "seek", &[&num("seconds")?.to_string(), "relative+exact"]);
+            Ok(ok)
+        }
+        "SETAUDIODELAY" => {
+            let _ = mpv.set_property("audio-delay", num("ms")? / 1000.0);
+            Ok(ok)
+        }
+        "SETSUBTITLEDELAY" => {
+            let _ = mpv.set_property("sub-delay", num("ms")? / 1000.0);
+            Ok(ok)
+        }
+        "SETAUDIOTRACK" | "SETSUBTITLETRACK" => {
+            let (kind, property) = if name == "SETAUDIOTRACK" { ("audio", "aid") } else { ("sub", "sid") };
+            let i = num("index")? as i64;
+            if i < 0 {
+                let _ = mpv.set_property(property, "no");
+            } else {
+                let id = track_list(mpv, kind).get(i as usize).and_then(|t| t["id"].as_i64()).ok_or("no such track")?;
+                let _ = mpv.set_property(property, id);
+            }
+            Ok(ok)
+        }
+        "GETAUDIOTRACKS" => Ok(json!({"ok": true, "tracks": track_list(mpv, "audio")})),
+        "GETSUBTITLETRACKS" => Ok(json!({"ok": true, "tracks": track_list(mpv, "sub")})),
+        "GETNOWPLAYING" => {
+            let s = |k: &str| prop::<String>(mpv, k);
+            Ok(json!({"ok": true, "title": s("media-title"), "author": s("metadata/by-key/artist"), "description": s("metadata/by-key/comment"),
+                      "file": ui.loaded.borrow().clone(), "duration": prop::<f64>(mpv, "duration")}))
+        }
+        "GETPLAYLIST" => {
+            let pl = ui.pl.borrow();
+            let items: Vec<Value> = pl.items.iter().map(|e| json!({"path": e.path, "title": e.title(), "duration": e.duration})).collect();
+            Ok(json!({"ok": true, "items": items, "current": pl.current}))
+        }
+        "GETCURRENTPOSITION" => Ok(json!({"ok": true, "seconds": prop::<f64>(mpv, "time-pos")})),
+        "GETSTATE" => Ok(json!({"ok": true, "state": ui.last_state.get()})),
+        "GETVERSION" => Ok(json!({"ok": true, "version": env!("CARGO_PKG_VERSION")})),
+        "TOGGLEFULLSCREEN" => run("view-fullscreen"),
+        "JUMPFORWARDMED" => run("play-seekforwardmed"),
+        "JUMPBACKWARDMED" => run("play-seekbackwardmed"),
+        "INCREASEVOLUME" => run("volume-up"),
+        "DECREASEVOLUME" => run("volume-down"),
+        "SHADER_TOGGLE" => {
+            let on = !ui.shaders_on.get();
+            ui.win.change_action_state("shaders-enabled", &on.to_variant());
+            Ok(ok)
+        }
+        "CLOSEAPP" => {
+            ui.win.close();
+            Ok(ok)
+        }
+        "SETSPEED" => {
+            let _ = mpv.set_property("speed", num("speed")?.clamp(0.125, 16.0));
+            Ok(ok)
+        }
+        "OSDSHOWMESSAGE" => {
+            let ms = v.get("duration").and_then(Value::as_i64).unwrap_or(3000);
+            cmd(mpv, "show-text", &[&text("text")?, &ms.to_string()]);
+            Ok(ok)
+        }
+        "WM_COMMAND" => {
+            let id = num("id")? as i64;
+            let c = COMMANDS.iter().find(|c| c.id as i64 == id).ok_or("unknown command id")?;
+            if ui.win.lookup_action(c.action).is_none() {
+                return Err(format!("{} isn't available yet", c.label));
+            }
+            run(c.action)
+        }
+        _ => Err(format!("unknown command {name}")),
+    }
 }
 
 const ASPECTS: [(&str, &str); 7] = [
@@ -813,7 +994,27 @@ fn on_eof(ui: &Ui) {
 /// End of the playlist: MPC's "After Playback" (or /close, /playnext for this run).
 fn after_playback(ui: &Ui) {
     let (setting, exit_fs) = (ui.cfg.borrow().after_playback, ui.cfg.borrow().exit_fullscreen_at_end);
-    match ui.after_override.get().unwrap_or(setting) {
+    // The Play > After Playback choice is for this time only (MPC resets it too).
+    let choice = ui.after_override.take().unwrap_or(setting);
+    if let Some(a) = ui.win.lookup_action("after-playback").and_downcast::<gio::SimpleAction>() {
+        a.set_state(&"".to_variant());
+    }
+    let system = |a: SystemAction| {
+        if exit_fs {
+            ui.win.unfullscreen();
+        }
+        integration::system_action(a);
+    };
+    match choice {
+        AfterPlayback::MonitorOff => return system(SystemAction::MonitorOff),
+        AfterPlayback::Standby => return system(SystemAction::Standby),
+        AfterPlayback::Hibernate => return system(SystemAction::Hibernate),
+        AfterPlayback::Shutdown => return system(SystemAction::Shutdown),
+        AfterPlayback::LogOff => return system(SystemAction::LogOff),
+        AfterPlayback::Lock => return system(SystemAction::Lock),
+        _ => {}
+    }
+    match choice {
         AfterPlayback::DoNothing => {}
         AfterPlayback::PlayNext => {
             let next = ui.loaded.borrow().clone().and_then(|p| playlist::folder_neighbor(&p, 1));
@@ -832,6 +1033,7 @@ fn after_playback(ui: &Ui) {
             ui.win.close();
             return;
         }
+        _ => {}
     }
     if exit_fs {
         ui.win.unfullscreen();
@@ -949,12 +1151,26 @@ fn refresh_recent(ui: &Ui) {
     ui.recent.append_section(None, &clear);
 }
 
+/// Icons the icon theme doesn't have, as symbolic SVGs (GTK tints them like the theme's own).
+fn install_icons() {
+    // Frame step: a play arrow followed by a bar, like MPC's toolbar.
+    const FRAME_STEP: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path d="M2.5 2.5v11l8-5.5z" fill="#2e3436"/><rect x="11.5" y="2.5" width="2.5" height="11" rx="0.6" fill="#2e3436"/></svg>"##;
+    let dir = glib::user_runtime_dir().join("mpc-rs-icons");
+    if std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join("mpc-frame-step-symbolic.svg"), FRAME_STEP)).is_ok()
+        && let Some(display) = gdk::Display::default()
+    {
+        gtk::IconTheme::for_display(&display).add_search_path(&dir);
+    }
+}
+
 pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     if let Some(win) = app.active_window() {
         win.present();
         return;
     }
 
+    gtk::Window::set_default_icon_name(integration::APP_ID);
+    install_icons();
     let cfg = config::load();
     let (w, h) = if cfg.remember_window_size { cfg.window_size } else { Config::default().window_size };
     let win = gtk::ApplicationWindow::builder().application(app).title("mpc-rs").default_width(w).default_height(h).build();
@@ -988,21 +1204,43 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     controls.set_margin_start(4);
     controls.set_margin_end(4);
+    // Play / Pause / Stop show which one is in effect (pressed in, as in MPC's toolbar).
+    let mut state_buttons = Vec::new();
     for (icon, action, tip) in [
         ("media-playback-start-symbolic", "win.play-play", "Play"),
         ("media-playback-pause-symbolic", "win.play-pause", "Pause"),
         ("media-playback-stop-symbolic", "win.play-stop", "Stop"),
         ("media-skip-backward-symbolic", "win.navigate-skipback", "Previous"),
         ("media-skip-forward-symbolic", "win.navigate-skipforward", "Next"),
-        ("go-last-symbolic", "win.play-framestep", "Frame Step"),
+        ("mpc-frame-step-symbolic", "win.play-framestep", "Frame Step"),
     ] {
-        let b = gtk::Button::from_icon_name(icon);
+        let b: gtk::Button = if state_buttons.len() < 3 {
+            let t = gtk::ToggleButton::builder().icon_name(icon).css_classes(["mpc-state"]).build();
+            state_buttons.push(t.clone());
+            t.upcast()
+        } else {
+            gtk::Button::from_icon_name(icon)
+        };
         b.set_action_name(Some(action));
-        b.set_tooltip_text(Some(tip));
+        b.set_tooltip_text(Some(&tr(tip)));
         b.set_focusable(false);
         b.add_css_class("flat");
         controls.append(&b);
     }
+    let state_buttons: [gtk::ToggleButton; 3] = state_buttons.try_into().expect("play, pause and stop buttons");
+    // The theme's accent color (the one the seek and volume bars use), so it follows the desktop's
+    // accent setting; a light tint behind the icon, the icon itself in the accent color.
+    // Plain GTK only rounds a window's top corners (libadwaita rounds all four); round the bottom
+    // ones too, except when the window is maximized, tiled or fullscreen.
+    let css = gtk::CssProvider::new();
+    css.load_from_string(
+        ".mpc-state:checked { color: @accent_color; background-color: alpha(@accent_color, 0.2); }\n\
+         .mpc-state:checked:hover { background-color: alpha(@accent_color, 0.3); }\n\
+         .mpc-fs-panel { background-color: alpha(black, 0.65); padding-top: 4px; }\n\
+         window.csd:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-top):not(.tiled-bottom):not(.tiled-left):not(.tiled-right) \
+           { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }",
+    );
+    gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     controls.append(&spacer);
@@ -1017,8 +1255,10 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     controls.append(&volume);
 
     let status = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    status.set_margin_start(6);
-    status.set_margin_end(6);
+    status.set_margin_start(8);
+    status.set_margin_end(8);
+    status.set_margin_top(4);
+    status.set_margin_bottom(6);
     let state = gtk::Label::builder().xalign(0.0).hexpand(true).label("Stopped").build();
     let time = gtk::Label::new(None);
     status.append(&state);
@@ -1077,6 +1317,17 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
+    // Fullscreen: the seek bar, controls and status move into this panel, which slides up over the
+    // bottom of the video (the video keeps its size).
+    let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["mpc-fs-panel"]).build();
+    let fs_revealer = gtk::Revealer::builder()
+        .transition_type(gtk::RevealerTransitionType::SlideUp)
+        .transition_duration(250)
+        .valign(gtk::Align::End)
+        .child(&fs_panel)
+        .visible(false)
+        .build();
+    overlay.add_overlay(&fs_revealer);
 
     // Context menu (MPC's "Player Menu", right click by default): the same menus as the menu bar.
     let menu = gtk::PopoverMenu::from_model(Some(&model));
@@ -1089,12 +1340,53 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     });
 
     let bindings = Rc::new(RefCell::new(commands::load(&cfg.keys)));
-    let mpris = Mpris::start(app, &win, {
-        let (win, bindings) = (win.clone(), bindings.clone());
-        move |m| {
-            run_bound(&win, &bindings.borrow(), |b| b.media == m && m != Media::None);
-        }
-    });
+    // MPRIS talks back through `UI` (set below, before any D-Bus call can arrive).
+    let mpris = Mpris::start(
+        app,
+        &win,
+        mpv,
+        {
+            let (win, bindings) = (win.clone(), bindings.clone());
+            move |req| match req {
+                mpris::Request::Media(m) => {
+                    run_bound(&win, &bindings.borrow(), |b| b.media == m && m != Media::None);
+                }
+                mpris::Request::OpenUri(uri) => {
+                    if let Some(ui) = UI.with_borrow(|u| u.clone()) {
+                        let path = gio::File::for_uri(&uri).path().map_or(uri, |p| p.to_string_lossy().into_owned());
+                        open_targets(&ui, &[path], false);
+                    }
+                }
+                mpris::Request::SetLoop(l) => {
+                    if let Some(ui) = UI.with_borrow(|u| u.clone()) {
+                        {
+                            let mut c = ui.cfg.borrow_mut();
+                            c.repeat_forever = l != "None";
+                            if l == "Track" {
+                                c.repeat_mode = RepeatMode::File;
+                            } else if l == "Playlist" {
+                                c.repeat_mode = RepeatMode::Playlist;
+                            }
+                        }
+                        save_config(&ui);
+                        sync_repeat(&ui);
+                        ui.mpris.refresh(ui.mpv, player_state(&ui));
+                    }
+                }
+                mpris::Request::SetShuffle(on) => {
+                    if let Some(ui) = UI.with_borrow(|u| u.clone()) {
+                        ui.cfg.borrow_mut().shuffle = on;
+                        ui.pl.borrow_mut().shuffle = on;
+                        save_config(&ui);
+                        ui.mpris.refresh(ui.mpv, player_state(&ui));
+                    }
+                }
+            }
+        },
+        || UI.with_borrow(|u| u.as_ref().map(|ui| player_state(ui))).unwrap_or(PlayerState { loop_status: "None", shuffle: false }),
+    );
+    let (jobs_tx, jobs) = mpsc::channel();
+    let ipc = remote::start_ipc(jobs_tx.clone());
 
     let ui = Rc::new(Ui {
         app: app.clone(),
@@ -1156,11 +1448,22 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         nav_sig: RefCell::new(String::new()),
         capture_label,
         record,
+        vbox: vbox.clone(),
+        fs_panel: fs_panel.clone(),
+        fs_revealer: fs_revealer.clone(),
+        state_buttons: state_buttons.clone(),
+        jobs,
+        ipc,
+        last_state: Cell::new("Stopped"),
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
     add_actions(app, &ui);
     apply_settings(&ui);
+    for b in &ui.state_buttons {
+        let ui = ui.clone();
+        b.connect_clicked(move |_| sync_state_buttons(&ui));
+    }
     refresh_discs(&ui);
     refresh_favorites(&ui);
     ui.capture_label.set_label("No capture device is open (File > Open Device).");
@@ -1180,6 +1483,9 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             save_position(&ui);
             ui.subresync.cleanup();
             shaders::cleanup();
+            if ui.ipc.is_some() {
+                remote::cleanup_socket();
+            }
             // MPC keeps the last volume (and, if asked, the window size) for the next start.
             let mut cfg = ui.cfg.borrow_mut();
             cfg.volume = prop::<f64>(ui.mpv, "volume").map_or(cfg.volume, |v| v.round() as u32);
@@ -1226,15 +1532,18 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     // --- mouse on video: buttons and wheel run their bound commands (MPC's CMouse::OnButton) ---
     // The context menu is a child of the overlay, so its clicks bubble up here too; ignore those.
     let on_video = {
-        let win = win.clone();
-        move |g: &gtk::GestureClick| g.current_event().and_then(|e| e.surface()) == win.surface()
+        let (win, overlay, panel) = (win.clone(), overlay.clone(), fs_panel.clone());
+        move |g: &gtk::GestureClick, x: f64, y: f64| {
+            let on_panel = overlay.pick(x, y, gtk::PickFlags::DEFAULT).is_some_and(|w| w == panel || w.is_ancestor(&panel));
+            g.current_event().and_then(|e| e.surface()) == win.surface() && !on_panel
+        }
     };
     let click = gtk::GestureClick::new();
     click.set_button(0);
     click.connect_pressed({
         let (ui, on_video) = (ui.clone(), on_video.clone());
         move |g, n, x, y| {
-            if on_video(g) {
+            if on_video(g, x, y) {
                 ui.pointer.set((x, y));
                 run_mouse(&ui, Mouse::button(g.current_button(), Click::Down));
                 if n == 2 {
@@ -1246,7 +1555,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     click.connect_released({
         let ui = ui.clone();
         move |g, _, x, y| {
-            if on_video(g) {
+            if on_video(g, x, y) {
                 ui.pointer.set((x, y));
                 run_mouse(&ui, Mouse::button(g.current_button(), Click::Up));
             }
@@ -1282,9 +1591,10 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     win.add_controller(motion);
     win.connect_fullscreened_notify({
         let ui = ui.clone();
-        move |_| {
+        move |win| {
             ui.fs_zone_at.set(None);
             ui.fs_reveal.set(false);
+            move_bottom_bars(&ui, win.is_fullscreen());
             update_fs_reveal(&ui);
             relayout(&ui);
         }
@@ -1340,6 +1650,26 @@ fn sync_repeat(ui: &Ui) {
     }
 }
 
+/// Put the seek bar, controls and status into the fullscreen panel (over the video), or back into the
+/// window's rows below it.
+fn move_bottom_bars(ui: &Ui, fullscreen: bool) {
+    let bar = |name: &str| ui.bars.iter().find(|(n, _)| *n == name).map(|(_, w)| w.clone()).unwrap();
+    let (anchor, rows) = (bar("view-statistics"), [bar("view-seeker"), bar("view-controls"), bar("view-status")]);
+    let mut after = anchor;
+    for w in rows {
+        let in_panel = w.parent().as_ref() == Some(ui.fs_panel.upcast_ref());
+        if fullscreen && !in_panel {
+            ui.vbox.remove(&w);
+            ui.fs_panel.append(&w);
+        } else if !fullscreen && in_panel {
+            ui.fs_panel.remove(&w);
+            ui.vbox.insert_child_after(&w, Some(&after));
+        }
+        after = w;
+    }
+    ui.fs_revealer.set_visible(fullscreen);
+}
+
 /// Fullscreen controls show while the pointer is near the bottom edge, and for the hide delay after
 /// (Options > Fullscreen), or always when hiding is off.
 fn update_fs_reveal(ui: &Ui) {
@@ -1348,19 +1678,23 @@ fn update_fs_reveal(ui: &Ui) {
     let reveal = ui.win.is_fullscreen() && (!hide || near);
     if reveal != ui.fs_reveal.get() {
         ui.fs_reveal.set(reveal);
+        // Slide in reasonably quickly, slide out more gently.
+        ui.fs_revealer.set_transition_duration(if reveal { 250 } else { 400 });
+        ui.fs_revealer.set_reveal_child(reveal);
         relayout(ui);
     }
 }
 
-/// Show/hide bars from the View toggles. In fullscreen only the seek bar and controls (when revealed)
-/// and the playlist (unless hidden on fullscreen, or docked panels hide with the controls).
+/// Show/hide bars from the View toggles. In fullscreen the seek bar, controls and status are in the
+/// panel over the video; the playlist shows unless hidden on fullscreen (or with the controls).
 fn relayout(ui: &Ui) {
     let fs = ui.win.is_fullscreen();
     for (name, w) in &ui.bars {
         let on = ui.win.action_state(name).and_then(|v| v.get::<bool>()).unwrap_or(true);
         let cfg = ui.cfg.borrow();
         let fs_ok = match *name {
-            "view-seeker" | "view-controls" => ui.fs_reveal.get(),
+            // In the fullscreen panel, which slides in and out by itself.
+            "view-seeker" | "view-controls" | "view-status" => true,
             "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
             "view-subresync" | "view-capture" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
             _ => false,
@@ -1371,11 +1705,22 @@ fn relayout(ui: &Ui) {
     ui.win.set_decorated(caption);
 }
 
-fn update(ui: &Ui) {
+fn update(ui: &Rc<Ui>) {
     let mpv = ui.mpv;
+    while let Ok(job) = ui.jobs.try_recv() {
+        handle_job(ui, job);
+    }
     while let Some(ev) = mpv.wait_event(0.0) {
         match ev {
-            Ok(libmpv2::events::Event::FileLoaded) => on_loaded(ui),
+            Ok(libmpv2::events::Event::FileLoaded) => {
+                on_loaded(ui);
+                ui.mpris.refresh(ui.mpv, player_state(ui));
+                broadcast(ui, json!({"event": "NOWPLAYING", "title": prop::<String>(ui.mpv, "media-title"), "file": ui.loaded.borrow().clone(), "duration": prop::<f64>(ui.mpv, "duration")}));
+            }
+            Ok(libmpv2::events::Event::Seek) => {
+                ui.mpris.seeked(ui.mpv);
+                broadcast(ui, json!({"event": "NOTIFYSEEK", "seconds": prop::<f64>(ui.mpv, "time-pos")}));
+            }
             Ok(libmpv2::events::Event::LogMessage { prefix, text, .. }) => {
                 let mut errors = ui.mpv_errors.borrow_mut();
                 errors.push(format!("[{prefix}] {}", text.trim_end()));
@@ -1399,6 +1744,7 @@ fn update(ui: &Ui) {
     // keep-open pauses on the last frame instead of ending the file; that's the "end of file" moment.
     if prop::<bool>(mpv, "eof-reached").unwrap_or(false) {
         if !ui.eof_handled.replace(true) {
+            broadcast(ui, json!({"event": "NOTIFYENDOFSTREAM"}));
             on_eof(ui);
         }
     } else {
@@ -1452,11 +1798,16 @@ fn update(ui: &Ui) {
         "Playing"
     };
     ui.state.set_label(state);
-    ui.mpris.set_status(match state {
+    sync_state_buttons(ui);
+    let mpris_state = match state {
         "Stopped" => "Stopped",
         "Paused" => "Paused",
         _ => "Playing",
-    });
+    };
+    ui.mpris.set_status(mpris_state);
+    if ui.last_state.replace(mpris_state) != mpris_state {
+        broadcast(ui, json!({"event": "STATE", "state": mpris_state}));
+    }
     ui.time.set_label(&if idle { String::new() } else { format!("{} / {}", hms(pos), hms(dur)) });
     let title = if idle { None } else { prop::<String>(mpv, "media-title") };
     ui.win.set_title(Some(&window_title(ui, idle)));
@@ -1489,6 +1840,18 @@ fn update(ui: &Ui) {
     update_fs_reveal(ui);
 }
 
+/// Press in the button for the current play state (and release the others).
+fn sync_state_buttons(ui: &Ui) {
+    let idle = prop::<bool>(ui.mpv, "idle-active").unwrap_or(true);
+    let paused = prop::<bool>(ui.mpv, "pause").unwrap_or(false);
+    let current = if idle || ui.stopped.get() { 2 } else if paused { 1 } else { 0 };
+    for (i, b) in ui.state_buttons.iter().enumerate() {
+        if b.is_active() != (i == current) {
+            b.set_active(i == current);
+        }
+    }
+}
+
 /// MPC's title bar setting: full path, file name (or the media's own title), or just the program name.
 fn window_title(ui: &Ui, idle: bool) -> String {
     let path = ui.loaded.borrow().clone().filter(|_| !idle);
@@ -1505,6 +1868,34 @@ fn window_title(ui: &Ui, idle: bool) -> String {
 }
 
 /// The menus, shared by the menu bar and the context menu. `recent` is filled by `refresh_recent`.
+/// Play > After Playback (one-shot): label, table action (MPC's ID_AFTERPLAYBACK_*), choice.
+const AFTER_MENU: [(&str, &str); 9] = [
+    ("Do no_thing", "afterplayback-donothing"),
+    ("Play _next file in the folder", "afterplayback-playnext"),
+    ("Turn off the _monitor", "afterplayback-monitoroff"),
+    ("_Exit", "afterplayback-exit"),
+    ("_Stand By", "afterplayback-standby"),
+    ("_Hibernate", "afterplayback-hibernate"),
+    ("Shut_down", "afterplayback-shutdown"),
+    ("Log _Off", "afterplayback-logoff"),
+    ("_Lock", "afterplayback-lock"),
+];
+
+fn after_choice(action: &str) -> AfterPlayback {
+    use AfterPlayback::*;
+    match action {
+        "afterplayback-playnext" => PlayNext,
+        "afterplayback-monitoroff" => MonitorOff,
+        "afterplayback-exit" => Exit,
+        "afterplayback-standby" => Standby,
+        "afterplayback-hibernate" => Hibernate,
+        "afterplayback-shutdown" => Shutdown,
+        "afterplayback-logoff" => LogOff,
+        "afterplayback-lock" => Lock,
+        _ => DoNothing,
+    }
+}
+
 /// Menus whose contents change (see `refresh_discs`, `update_nav_menus`, `refresh_favorites`).
 struct NavMenus {
     disc: gio::Menu,
@@ -1517,7 +1908,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     fn section(items: &[(&str, &str)]) -> gio::Menu {
         let m = gio::Menu::new();
         for (label, action) in items {
-            m.append(Some(label), Some(action));
+            m.append(Some(tr(label).as_str()), Some(action));
         }
         m
     }
@@ -1533,13 +1924,13 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     ]));
     file.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("Open Dis_c"), &nav.disc);
-        m.append(Some("Re_open File"), Some("win.file-reopen"));
+        m.append_submenu(Some(tr("Open Dis_c").as_str()), &nav.disc);
+        m.append(Some(tr("Re_open File").as_str()), Some("win.file-reopen"));
         m
     });
     file.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("Recent _Files"), recent);
+        m.append_submenu(Some(tr("Recent _Files").as_str()), recent);
         m
     });
     file.append_section(None, &section(&[
@@ -1553,7 +1944,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     file.append_section(None, &section(&[("P_roperties", "win.file-properties")]));
     file.append_section(None, &section(&[("_Close", "win.file-close-and-restore")]));
     file.append_section(None, &section(&[("E_xit", "win.file-exit")]));
-    root.append_submenu(Some("_File"), &file);
+    root.append_submenu(Some(tr("_File").as_str()), &file);
 
     let view = gio::Menu::new();
     let bars: Vec<(String, String)> = BARS.iter().map(|(a, l, _)| (l.replace("&&", "&"), format!("win.{a}"))).collect();
@@ -1569,9 +1960,9 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     ]);
     view.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("_Presets"), &presets);
-        m.append(Some("F_ull Screen"), Some("win.view-fullscreen"));
-        m.append_submenu(Some("_Zoom"), &section(&[
+        m.append_submenu(Some(tr("_Presets").as_str()), &presets);
+        m.append(Some(tr("F_ull Screen").as_str()), Some("win.view-fullscreen"));
+        m.append_submenu(Some(tr("_Zoom").as_str()), &section(&[
             ("_50%", "win.view-zoom-50"),
             ("_100%", "win.view-zoom-100"),
             ("_200%", "win.view-zoom-200"),
@@ -1588,28 +1979,28 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
             ("Show _File Name", "win.view-osd-show-filename"),
             ("_VSync (sync video to display)", "win.view-vsync"),
         ]);
-        m.append_submenu(Some("R_enderer Settings"), &renderer);
+        m.append_submenu(Some(tr("R_enderer Settings").as_str()), &renderer);
         let frame = gio::Menu::new();
         let modes = gio::Menu::new();
         for (label, action, _) in FRAMES {
-            let item = gio::MenuItem::new(Some(label), None);
+            let item = gio::MenuItem::new(Some(tr(label).as_str()), None);
             item.set_action_and_target_value(Some("win.video-frame"), Some(&action.to_variant()));
             modes.append_item(&item);
         }
         frame.append_section(None, &modes);
         let aspect = gio::Menu::new();
         for (label, value) in ASPECTS {
-            let item = gio::MenuItem::new(Some(label), None);
+            let item = gio::MenuItem::new(Some(tr(label).as_str()), None);
             item.set_action_and_target_value(Some("win.aspect"), Some(&value.to_variant()));
             aspect.append_item(&item);
         }
         frame.append_section(None, &{
             let m = gio::Menu::new();
-            m.append_submenu(Some("Override _Aspect Ratio"), &aspect);
-            m.append(Some("D_einterlace"), Some("win.deinterlace"));
+            m.append_submenu(Some(tr("Override _Aspect Ratio").as_str()), &aspect);
+            m.append(Some(tr("D_einterlace").as_str()), Some("win.deinterlace"));
             m
         });
-        m.append_submenu(Some("_Video Frame"), &frame);
+        m.append_submenu(Some(tr("_Video Frame").as_str()), &frame);
         let pns = gio::Menu::new();
         pns.append_section(None, &section(&[
             ("_Increase Size", "win.view-incsize"),
@@ -1633,12 +2024,12 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
             ("_Mirror", "win.panscan-rotateym"),
         ]));
         pns.append_section(None, &section(&[("Re_set", "win.view-reset")]));
-        pns.append_section(Some("Presets"), &pns_presets_menu());
-        m.append_submenu(Some("_Pan&Scan"), &pns);
+        pns.append_section(Some(tr("Presets").as_str()), &pns_presets_menu());
+        m.append_submenu(Some(tr("_Pan&Scan").as_str()), &pns);
         m
     });
     view.append_section(None, &section(&[("_Options...", "win.view-options")]));
-    root.append_submenu(Some("_View"), &view);
+    root.append_submenu(Some(tr("_View").as_str()), &view);
 
     let play = gio::Menu::new();
     play.append_section(None, &section(&[
@@ -1652,8 +2043,15 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
         let repeat = gio::Menu::new();
         repeat.append_section(None, &section(&[("F_orever", "win.play-repeat-forever")]));
         repeat.append_section(None, &section(&[("_File", "win.play-repeat-onefile"), ("_Playlist", "win.play-repeat-wholeplaylist")]));
-        m.append_submenu(Some("_Repeat"), &repeat);
-        m.append_submenu(Some("A-_B Repeat"), &section(&[("Set _A (start)", "win.ab-set-a"), ("Set _B (end)", "win.ab-set-b"), ("_Clear", "win.ab-clear")]));
+        m.append_submenu(Some(tr("_Repeat").as_str()), &repeat);
+        let after = gio::Menu::new();
+        for (label, value) in AFTER_MENU {
+            let item = gio::MenuItem::new(Some(tr(label).as_str()), None);
+            item.set_action_and_target_value(Some("win.after-playback"), Some(&value.to_variant()));
+            after.append_item(&item);
+        }
+        m.append_submenu(Some(tr("Af_ter Playback").as_str()), &after);
+        m.append_submenu(Some(tr("A-_B Repeat").as_str()), &section(&[("Set _A (start)", "win.ab-set-a"), ("Set _B (end)", "win.ab-set-b"), ("_Clear", "win.ab-clear")]));
         m
     });
     play.append_section(None, &section(&[
@@ -1663,33 +2061,33 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     ]));
     play.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("S_haders"), &section(&[("_Enabled", "win.shaders-enabled"), ("Shader _Editor...", "win.shader-editor")]));
+        m.append_submenu(Some(tr("S_haders").as_str()), &section(&[("_Enabled", "win.shaders-enabled"), ("Shader _Editor...", "win.shader-editor")]));
         m
     });
     play.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("_Audio Track"), &tracks[0]);
-        m.append_submenu(Some("Su_btitle Track"), &tracks[1]);
-        m.append_submenu(Some("Vide_o Track"), &tracks[2]);
+        m.append_submenu(Some(tr("_Audio Track").as_str()), &tracks[0]);
+        m.append_submenu(Some(tr("Su_btitle Track").as_str()), &tracks[1]);
+        m.append_submenu(Some(tr("Vide_o Track").as_str()), &tracks[2]);
         m
     });
     play.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("_Volume"), &section(&[("_Up", "win.volume-up"), ("_Down", "win.volume-down"), ("_Mute", "win.volume-mute")]));
+        m.append_submenu(Some(tr("_Volume").as_str()), &section(&[("_Up", "win.volume-up"), ("_Down", "win.volume-down"), ("_Mute", "win.volume-mute")]));
         m
     });
-    root.append_submenu(Some("_Play"), &play);
+    root.append_submenu(Some(tr("_Play").as_str()), &play);
 
     let navigate = section(&[("_Previous", "win.navigate-skipback"), ("_Next", "win.navigate-skipforward"), ("_Go To...", "win.navigate-goto")]);
     navigate.append_section(None, &{
         let m = gio::Menu::new();
-        m.append_submenu(Some("_Chapters"), &nav.chapters);
-        m.append_submenu(Some("_Titles"), &nav.titles);
+        m.append_submenu(Some(tr("_Chapters").as_str()), &nav.chapters);
+        m.append_submenu(Some(tr("_Titles").as_str()), &nav.titles);
         m
     });
-    root.append_submenu(Some("_Navigate"), &navigate);
-    root.append_submenu(Some("F_avorites"), &nav.favorites);
-    root.append_submenu(Some("_Help"), &section(&[("_About...", "win.about")]));
+    root.append_submenu(Some(tr("_Navigate").as_str()), &navigate);
+    root.append_submenu(Some(tr("F_avorites").as_str()), &nav.favorites);
+    root.append_submenu(Some(tr("_Help").as_str()), &section(&[("_About...", "win.about")]));
     root
 }
 
@@ -2367,6 +2765,24 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         }
     });
     win.add_action(&open_fav);
+
+    // Play > After Playback: one-shot choices (radio items) and MPC's commands for them.
+    let after = gio::SimpleAction::new_stateful("after-playback", Some(glib::VariantTy::STRING), &"".to_variant());
+    after.connect_activate({
+        let ui = ui.clone();
+        move |a, v| {
+            if let Some(name) = v.and_then(|v| v.get::<String>()) {
+                a.set_state(&name.to_variant());
+                ui.after_override.set(Some(after_choice(&name)));
+                osd(mpv, &format!("After playback: {}", after_choice(&name).label()));
+            }
+        }
+    });
+    win.add_action(&after);
+    for (_, name) in AFTER_MENU {
+        let win2 = win.clone();
+        add(name, Box::new(move || gio::prelude::ActionGroupExt::activate_action(&win2, "after-playback", Some(&name.to_variant()))));
+    }
 
     // Help
     add("about", Box::new({

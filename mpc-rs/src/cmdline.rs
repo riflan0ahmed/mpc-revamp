@@ -25,6 +25,11 @@ Usage: mpc-rs \"pathname\" [switches]
 /start ms\tStart playing at \"ms\" (= milliseconds)
 /startpos hh:mm:ss\tStart playing at position hh:mm:ss
 /fixedsize w,h\tSet a fixed window size
+/regvid\t\tCreate file associations for video files
+/regaud\t\tCreate file associations for audio files
+/regpl\t\tCreate file associations for playlist files
+/regall\t\tCreate file associations for all supported file types
+/unregall\tRemove all file associations
 /nofocus\tOpen in background
 /reset\t\tRestore default settings
 /help /h /?\tShow help about command line switches";
@@ -33,14 +38,13 @@ Usage: mpc-rs \"pathname\" [switches]
 const IGNORED: &[(&str, bool)] = &[
     ("dubdelay", true), ("d3dfs", false), ("filter", true), ("dvd", false), ("dvdpos", true), ("cd", false),
     ("device", false), ("shutdown", false), ("standby", false), ("hibernate", false), ("logoff", false),
-    ("lock", false), ("monitoroff", false), ("regvid", false), ("regaud", false), ("regpl", false),
-    ("regall", false), ("unregall", false), ("monitor", true), ("audiorenderer", true), ("shaderpreset", true),
+    ("lock", false), ("monitoroff", false), ("monitor", true), ("audiorenderer", true), ("shaderpreset", true),
     ("pns", true), ("iconsassoc", false), ("webport", true), ("debug", false), ("nocrashreporter", false),
     ("slave", true), ("hwgpu", true),
 ];
 const FLAGS: &[&str] = &[
     "open", "play", "close", "playnext", "mute", "fullscreen", "minimized", "new", "add", "randomize", "nofocus",
-    "reset", "help", "h", "?",
+    "reset", "help", "h", "?", "regvid", "regaud", "regpl", "regall", "unregall",
 ];
 const WITH_ARG: &[&str] = &["dub", "sub", "volume", "viewpreset", "start", "startpos", "fixedsize"];
 
@@ -67,6 +71,9 @@ pub struct CmdLine {
     pub nofocus: bool,
     pub reset: bool,
     pub help: bool,
+    /// /regvid /regaud /regpl (/regall = all three), /unregall.
+    pub register: (bool, bool, bool),
+    pub unregister: bool,
     /// Switches that were recognized but don't do anything here.
     pub ignored: Vec<String>,
 }
@@ -97,7 +104,14 @@ fn hms(s: &str) -> Option<f64> {
 /// Parse the arguments after the program name. Relative paths are made absolute against `cwd`.
 pub fn parse(args: &[String], cwd: &Path) -> Result<CmdLine, String> {
     let mut c = CmdLine::default();
-    let abs = |p: &str| if p.contains("://") || Path::new(p).is_absolute() { p.to_string() } else { cwd.join(p).to_string_lossy().into_owned() };
+    // Relative paths are made absolute (and tidied, e.g. "a/../b", when the file exists).
+    let abs = |p: &str| {
+        if p.contains("://") || Path::new(p).is_absolute() {
+            return p.to_string();
+        }
+        let full = cwd.join(p);
+        full.canonicalize().unwrap_or(full).to_string_lossy().into_owned()
+    };
     let mut it = args.iter();
     let mut unknown = Vec::new();
     while let Some(arg) = it.next() {
@@ -120,6 +134,11 @@ pub fn parse(args: &[String], cwd: &Path) -> Result<CmdLine, String> {
             "nofocus" => c.nofocus = true,
             "reset" => c.reset = true,
             "help" | "h" | "?" => c.help = true,
+            "regvid" => c.register.0 = true,
+            "regaud" => c.register.1 = true,
+            "regpl" => c.register.2 = true,
+            "regall" => c.register = (true, true, true),
+            "unregall" => c.unregister = true,
             "dub" => c.dubs.push(abs(&value("a file")?)),
             "sub" => c.subs.push(abs(&value("a file")?)),
             "volume" => c.volume = Some(value("a number")?.parse::<u32>().map_err(|e| e.to_string())?.min(100)),
@@ -165,6 +184,8 @@ mod tests {
         assert_eq!(p(&["/fixedsize", "640, 480"]).unwrap().fixedsize, Some((640, 480)));
         assert_eq!(p(&["/volume", "250"]).unwrap().volume, Some(100));
         assert_eq!(p(&["/dvd", "/monitor", "2"]).unwrap().ignored, ["/dvd", "/monitor"]);
+        assert_eq!(p(&["/regall", "/webport", "8080"]).unwrap().register, (true, true, true));
+        assert_eq!(p(&["/webport", "8080"]).unwrap().ignored, ["/webport"]);
         assert!(p(&["/frobnicate"]).unwrap().files == ["/frobnicate"], "unknown /name is a path");
         assert!(p(&["-frobnicate"]).is_err());
         assert!(p(&["/sub"]).is_err());

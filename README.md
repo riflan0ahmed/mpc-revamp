@@ -28,6 +28,33 @@ cargo run --release -- /path/to/video.mkv
 
 If the player is already running, opening another file sends it to that window.
 
+## Supported formats
+
+Playback is done by mpv/FFmpeg, so mpc-rs plays almost anything FFmpeg can decode. The extensions
+below are the ones it recognizes when it opens a folder, picks the next file in a folder, or sets
+up file associations (Options > Formats). A file with another extension still plays when you open
+it directly or drop it on the window.
+
+**Video:** `.3g2` `.3gp` `.asf` `.avi` `.divx` `.dv` `.evo` `.f4v` `.flv` `.h264` `.h265` `.hevc`
+`.m1v` `.m2t` `.m2ts` `.m2v` `.m4v` `.mkv` `.mov` `.mp4` `.mpe` `.mpeg` `.mpg` `.mts` `.mxf` `.ogm`
+`.ogv` `.rm` `.rmvb` `.ts` `.vob` `.webm` `.wmv` `.y4m`
+
+**Audio:** `.aac` `.ac3` `.aif` `.aiff` `.alac` `.amr` `.ape` `.au` `.dts` `.flac` `.m4a` `.m4b`
+`.mid` `.midi` `.mka` `.mp3` `.mpc` `.oga` `.opus` `.ra` `.ram` `.tak` `.tta` `.wav` `.wma` `.wv`
+
+**Video or audio:** `.mp2` `.mpa` `.ogg`
+
+**Playlists:** `.mpcpl` `.m3u` `.m3u8` `.pls` `.asx` `.cue` (a cue sheet plays as one item with a
+chapter per track)
+
+**Subtitles:** `.srt` `.ass` `.ssa` `.sub` `.idx` `.sup` `.vtt` `.smi` `.usf`. Subtitles named like
+the video are loaded automatically, also from `subs/` and `subtitles/` folders next to it.
+
+**Also:** DVD and Blu-ray folders (`VIDEO_TS` / `BDMV`) and `.iso` images, audio CDs, capture
+devices (v4l2), and network streams (`http://`, `https://` and anything else mpv understands).
+Encrypted DVDs need `libdvdcss`. DVD and Blu-ray menus aren't supported (mpv plays the titles
+directly).
+
 ## Repository layout
 
 | Path | Contents |

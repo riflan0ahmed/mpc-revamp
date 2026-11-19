@@ -3,6 +3,7 @@
 //! are added with those features.
 
 use crate::{
+    i18n::{self, tr},
     commands::{self, Binding, COMMANDS, Media, Mouse},
     config::{self, AfterPlayback, Config, RepeatMode, TitleBar, Zoom},
     shaders,
@@ -40,6 +41,7 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
     // MPC's page tree; children are indented.
     let pages: Vec<(&str, bool, gtk::Widget)> = vec![
         ("Player", false, player_page(&work)),
+        ("Formats", true, formats_page()),
         ("Keys", true, keys_box.upcast()),
         ("Logo", true, logo_page(&work)),
         ("Playback", false, playback_page(&work)),
@@ -58,7 +60,7 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
     tree.add_css_class("navigation-sidebar");
     for (i, (title, child, page)) in pages.into_iter().enumerate() {
         stack.add_named(&page, Some(&i.to_string()));
-        let label = gtk::Label::builder().label(title).xalign(0.0).margin_start(if child { 24 } else { 6 }).margin_end(12).build();
+        let label = gtk::Label::builder().label(i18n::tr_page(title)).xalign(0.0).margin_start(if child { 24 } else { 6 }).margin_end(12).build();
         tree.append(&label);
     }
     tree.connect_row_selected({
@@ -78,10 +80,10 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
             on_apply(work.borrow().clone());
         }
     };
-    let ok = gtk::Button::with_label("OK");
+    let ok = gtk::Button::with_label(&tr("OK"));
     ok.add_css_class("suggested-action");
-    let cancel = gtk::Button::with_label("Cancel");
-    let apply = gtk::Button::with_label("Apply");
+    let cancel = gtk::Button::with_label(&tr("Cancel"));
+    let apply = gtk::Button::with_label(&tr("&Apply"));
     ok.connect_clicked({
         let (dlg, apply_now) = (dlg.clone(), apply_now.clone());
         move |_| {
@@ -116,7 +118,7 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
 // --- small widgets bound to one setting of the working copy ---
 
 fn check(work: &Work, label: &str, get: fn(&Config) -> bool, set: fn(&mut Config, bool)) -> gtk::CheckButton {
-    let b = gtk::CheckButton::with_label(label);
+    let b = gtk::CheckButton::with_label(&tr(label));
     b.set_active(get(&work.borrow()));
     let work = work.clone();
     b.connect_toggled(move |b| set(&mut work.borrow_mut(), b.is_active()));
@@ -140,7 +142,8 @@ fn entry(work: &Work, placeholder: &str, get: fn(&Config) -> String, set: fn(&mu
 }
 
 fn combo(work: &Work, labels: &[&str], get: fn(&Config) -> usize, set: fn(&mut Config, usize)) -> gtk::DropDown {
-    let d = gtk::DropDown::from_strings(labels);
+    let labels: Vec<String> = labels.iter().map(|l| tr(l)).collect();
+    let d = gtk::DropDown::from_strings(&labels.iter().map(String::as_str).collect::<Vec<_>>());
     d.set_selected(get(&work.borrow()) as u32);
     let work = work.clone();
     d.connect_selected_notify(move |d| set(&mut work.borrow_mut(), d.selected() as usize));
@@ -153,16 +156,16 @@ fn group(title: &str, rows: &[&gtk::Widget]) -> gtk::Frame {
     for r in rows {
         b.append(*r);
     }
-    gtk::Frame::builder().label(title).child(&b).build()
+    gtk::Frame::builder().label(tr(title)).child(&b).build()
 }
 
 /// "Label: [widget] suffix" on one line.
 fn row(label: &str, w: &impl IsA<gtk::Widget>, suffix: &str) -> gtk::Widget {
     let b = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    b.append(&gtk::Label::builder().label(label).xalign(0.0).width_chars(18).build());
+    b.append(&gtk::Label::builder().label(tr(label)).xalign(0.0).width_chars(18).build());
     b.append(w);
     if !suffix.is_empty() {
-        b.append(&gtk::Label::new(Some(suffix)));
+        b.append(&gtk::Label::new(Some(&tr(suffix))));
     }
     b.upcast()
 }
@@ -189,10 +192,26 @@ fn player_page(w: &Work) -> gtk::Widget {
     let dvd_pos = check(w, "Remember DVD position", |c| c.remember_dvd_pos, |c, v| c.remember_dvd_pos = v);
     let size = check(w, "Remember last window size", |c| c.remember_window_size, |c, v| c.remember_window_size = v);
     let osd = check(w, "Show OSD", |c| c.show_osd, |c, v| c.show_osd = v);
+    // Language: "" = the system's, "en" = English, else a PO code. Takes effect at the next start.
+    let mut names: Vec<String> = vec![tr("System default"), "English".into()];
+    names.extend(i18n::LANGUAGES.iter().map(|(_, n)| n.to_string()));
+    let lang = gtk::DropDown::from_strings(&names.iter().map(String::as_str).collect::<Vec<_>>());
+    let code_at = |i: u32| match i {
+        0 => String::new(),
+        1 => "en".to_string(),
+        i => i18n::LANGUAGES.get(i as usize - 2).map_or(String::new(), |(c, _)| c.to_string()),
+    };
+    let current = w.borrow().language.clone();
+    lang.set_selected((0..names.len() as u32).find(|i| code_at(*i) == current).unwrap_or(0));
+    lang.connect_selected_notify({
+        let work = w.clone();
+        move |d| work.borrow_mut().language = code_at(d.selected())
+    });
     let recent = spin(w, 0.0, 100.0, 1.0, |c| c.recent_files_number as i64, |c, v| c.recent_files_number = v as usize);
     page(&[
         group("Open options", &[open.upcast_ref()]).upcast_ref(),
         group("Title bar", &[title.upcast_ref(), media_title.upcast_ref()]).upcast_ref(),
+        group("Language", &[&row("Language:", &lang, "(after restart)")]).upcast_ref(),
         group("Other", &[osd.upcast_ref()]).upcast_ref(),
         group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), dvd_pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
     ])
@@ -236,7 +255,7 @@ fn playback_page(w: &Work) -> gtk::Widget {
     let loops = spin(w, 1.0, 999.0, 1.0, |c| c.loops as i64, |c, v| c.loops = v as u32);
     let forever = check(w, "Repeat forever", |c| c.repeat_forever, |c, v| c.repeat_forever = v);
     let mode = combo(w, &["File", "Playlist"], |c| c.repeat_mode as usize, |c, i| c.repeat_mode = [RepeatMode::File, RepeatMode::Playlist][i]);
-    let after = combo(w, &AfterPlayback::ALL.map(|a| a.label()), |c| c.after_playback as usize, |c, i| c.after_playback = AfterPlayback::ALL[i]);
+    let after = combo(w, &AfterPlayback::SETTINGS.map(|a| a.label()), |c| AfterPlayback::SETTINGS.iter().position(|a| *a == c.after_playback).unwrap_or(0), |c, i| c.after_playback = AfterPlayback::SETTINGS[i]);
     let subs = entry(w, "e.g. eng,jpn", |c| c.subtitle_langs.clone(), |c, v| c.subtitle_langs = v);
     let audio = entry(w, "e.g. jpn,eng", |c| c.audio_langs.clone(), |c, v| c.audio_langs = v);
     let auto_audio = check(w, "Auto-load audio files", |c| c.autoload_audio, |c, v| c.autoload_audio = v);
@@ -321,6 +340,56 @@ fn color(work: &Work, get: fn(&Config) -> String, set: fn(&mut Config, String)) 
         set(&mut work.borrow_mut(), format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.red()), byte(c.green()), byte(c.blue()), byte(c.alpha())));
     });
     b
+}
+
+/// MPC's Formats page: make this the default player for video, audio and playlist files.
+fn formats_page() -> gtk::Widget {
+    use crate::integration::{self, Kind};
+    let kinds = [(Kind::Video, "Video files"), (Kind::Audio, "Audio files"), (Kind::Playlist, "Playlists")];
+    let checks: Vec<(Kind, gtk::CheckButton)> = kinds
+        .iter()
+        .map(|(k, label)| {
+            let n = integration::mime_types(*k).len();
+            let b = gtk::CheckButton::with_label(&format!("{label} ({n} types)"));
+            b.set_active(*k != Kind::Playlist);
+            (*k, b)
+        })
+        .collect();
+    let status = gtk::Label::builder().xalign(0.0).wrap(true).css_classes(["dim-label"]).build();
+    let set = gtk::Button::with_label("Make mpc-rs the default player");
+    set.connect_clicked({
+        let (checks, status) = (checks.clone(), status.clone());
+        move |_| {
+            let chosen: Vec<Kind> = checks.iter().filter(|(_, b)| b.is_active()).map(|(k, _)| *k).collect();
+            status.set_label(&match integration::associate(&chosen) {
+                Ok(n) => format!("mpc-rs now opens {n} file types."),
+                Err(e) => format!("Couldn't change the file associations: {e}"),
+            });
+        }
+    });
+    let reset = gtk::Button::with_label("Restore the previous defaults");
+    reset.connect_clicked({
+        let status = status.clone();
+        move |_| status.set_label(&format!("Removed {} file associations.", integration::unassociate()))
+    });
+    let install = gtk::Button::with_label("Add to the applications menu only");
+    install.connect_clicked({
+        let status = status.clone();
+        move |_| {
+            status.set_label(&match integration::install() {
+                Ok(()) => "mpc-rs is in the applications menu.".to_string(),
+                Err(e) => e.to_string(),
+            })
+        }
+    });
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    for b in [&set, &reset, &install] {
+        buttons.append(b);
+    }
+    let mut rows: Vec<&gtk::Widget> = checks.iter().map(|(_, b)| b.upcast_ref()).collect();
+    rows.push(buttons.upcast_ref());
+    rows.push(status.upcast_ref());
+    page(&[group("File associations", &rows).upcast_ref()])
 }
 
 /// MPC's Output page: the parts that mean something with mpv (decoding, color, levels, screenshots).
@@ -671,7 +740,7 @@ fn keys_page(dlg: &gtk::Window, bindings: Vec<Binding>, implemented: Vec<bool>) 
         col.set_resizable(true);
         view.append_column(&col);
     };
-    column("Command", true, |i, _| COMMANDS[i].label.to_string());
+    column("Command", true, |i, _| tr(COMMANDS[i].label));
     column("Key", false, |_, b| key_label(&b.key));
     column("ID", false, |i, _| COMMANDS[i].id.to_string());
     column("Mouse Window", false, |_, b| if b.mouse == Mouse::None { String::new() } else { b.mouse.label().into() });

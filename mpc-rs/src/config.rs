@@ -13,7 +13,7 @@ pub enum RepeatMode {
     Playlist,
 }
 
-/// MPC's `eAfterPlayback` (Options > Playback), minus "turn off the monitor".
+/// MPC's `eAfterPlayback` (Options > Playback), plus the one-shot system actions of Play > After Playback.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum AfterPlayback {
     DoNothing,
@@ -21,12 +21,39 @@ pub enum AfterPlayback {
     Rewind,
     Close,
     Exit,
+    MonitorOff,
+    Standby,
+    Hibernate,
+    Shutdown,
+    LogOff,
+    Lock,
 }
 
 impl AfterPlayback {
-    pub const ALL: [AfterPlayback; 5] = [AfterPlayback::DoNothing, AfterPlayback::PlayNext, AfterPlayback::Rewind, AfterPlayback::Close, AfterPlayback::Exit];
+    /// The choices of Options > Playback (MPC's order).
+    pub const SETTINGS: [AfterPlayback; 6] = [
+        AfterPlayback::DoNothing,
+        AfterPlayback::PlayNext,
+        AfterPlayback::Rewind,
+        AfterPlayback::MonitorOff,
+        AfterPlayback::Close,
+        AfterPlayback::Exit,
+    ];
     pub fn label(self) -> &'static str {
-        ["Do nothing", "Play next file in the folder", "Rewind current file", "Close", "Exit"][self as usize]
+        use AfterPlayback::*;
+        match self {
+            DoNothing => "Do nothing",
+            PlayNext => "Play next file in the folder",
+            Rewind => "Rewind current file",
+            Close => "Close",
+            Exit => "Exit",
+            MonitorOff => "Turn off the monitor",
+            Standby => "Stand By",
+            Hibernate => "Hibernate",
+            Shutdown => "Shutdown",
+            LogOff => "Log Off",
+            Lock => "Lock",
+        }
     }
 }
 
@@ -94,6 +121,8 @@ pub struct Config {
     pub window_size: (i32, i32),
     pub recent_files_number: usize,
     pub show_osd: bool,
+    /// Interface language (a PO file code like "de"); empty = the system's, "en" = English.
+    pub language: String,
     // Keys: changed command bindings, keyed by action name (see `commands::COMMANDS`).
     pub keys: BTreeMap<String, Binding>,
     // Logo: an image file instead of the built-in logo (empty = built-in).
@@ -210,6 +239,7 @@ impl Default for Config {
             window_size: (960, 620),
             recent_files_number: 20,
             show_osd: true,
+            language: String::new(),
             keys: BTreeMap::new(),
             logo_file: String::new(),
             volume: 100,

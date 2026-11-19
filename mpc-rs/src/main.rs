@@ -2,10 +2,13 @@ mod cmdline;
 mod commands;
 mod config;
 mod dialogs;
+mod i18n;
+mod integration;
 mod mpris;
 mod options;
 mod playlist;
 mod playlistbar;
+mod remote;
 mod shaders;
 mod subresync;
 mod subtitles;
@@ -37,6 +40,24 @@ fn main() -> glib::ExitCode {
     }
     if local.reset {
         config::save(&config::Config::default());
+    }
+    // File associations, like MPC: done here, then the player only starts if there's something to play.
+    let (v, a, p) = local.register;
+    if v || a || p || local.unregister {
+        use integration::Kind;
+        if local.unregister {
+            println!("Removed {} file associations.", integration::unassociate());
+        }
+        let kinds: Vec<Kind> = [(v, Kind::Video), (a, Kind::Audio), (p, Kind::Playlist)].into_iter().filter(|(on, _)| *on).map(|(_, k)| k).collect();
+        if !kinds.is_empty() {
+            match integration::associate(&kinds) {
+                Ok(n) => println!("mpc-rs now opens {n} file types."),
+                Err(e) => eprintln!("File associations: {e}"),
+            }
+        }
+        if local.files.is_empty() {
+            return glib::ExitCode::SUCCESS;
+        }
     }
     let mut flags = gio::ApplicationFlags::HANDLES_OPEN | gio::ApplicationFlags::HANDLES_COMMAND_LINE;
     if local.new || config::load().allow_multiple_instances {
@@ -81,8 +102,9 @@ fn main() -> glib::ExitCode {
     // SAFETY: the handle is valid for the whole run (mpv is leaked above).
     unsafe { mpv_request_log_messages(mpv.ctx.as_ptr().cast(), c"error".as_ptr()) };
 
+    i18n::init(&config::load().language);
     let app = gtk::Application::builder()
-        .application_id("io.github.mpcrs.Player")
+        .application_id(integration::APP_ID)
         .flags(flags)
         .build();
 
