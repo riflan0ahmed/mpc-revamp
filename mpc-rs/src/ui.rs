@@ -1199,7 +1199,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     let seek = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 1.0);
     seek.set_draw_value(false);
     seek.set_focusable(false);
-    seek.set_has_tooltip(true);
 
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     controls.set_margin_start(4);
@@ -1507,18 +1506,61 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             glib::Propagation::Proceed
         }
     });
-    seek.connect_query_tooltip({
-        let ui = ui.clone();
-        move |s, x, _, _, tip| {
-        let adj = s.adjustment();
-        if adj.upper() <= 1.0 || !ui.cfg.borrow().time_tooltip {
-            return false;
+    // Hover time: a small bubble above the pointer that follows it along the seek bar
+    // (Options > Tweaks > Show time tooltip).
+    let hover_label = gtk::Label::builder().css_classes(["numeric"]).build();
+    let hover = gtk::Popover::builder().child(&hover_label).autohide(false).can_focus(false).can_target(false).position(gtk::PositionType::Top).build();
+    hover.set_parent(&seek);
+    seek.connect_destroy({
+        let hover = hover.clone();
+        move |_| hover.unparent()
+    });
+    let hover_motion = gtk::EventControllerMotion::new();
+    // Bumped on every enter/motion; a pending hide only runs if nothing happened since.
+    let hover_gen = Rc::new(Cell::new(0u64));
+    let show_hover = {
+        let (ui, seek, hover, hover_gen) = (ui.clone(), seek.clone(), hover.clone(), hover_gen.clone());
+        move |x: f64| {
+            hover_gen.set(hover_gen.get() + 1);
+            let adj = seek.adjustment();
+            if adj.upper() <= 1.0 || !seek.is_sensitive() || !ui.cfg.borrow().time_tooltip {
+                hover.popdown();
+                return;
+            }
+            // The knob's center runs from one end of the track to the other; map x the same way.
+            let track = seek.range_rect();
+            let (a, b) = seek.slider_range();
+            let half = (b - a) as f64 / 2.0;
+            let (x0, x1) = (track.x() as f64 + half, (track.x() + track.width()) as f64 - half);
+            let frac = ((x - x0) / (x1 - x0).max(1.0)).clamp(0.0, 1.0);
+            hover_label.set_label(&hms(adj.lower() + frac * (adj.upper() - adj.lower())));
+            // Point a little above the bar, so the bubble's surface (arrow, shadow) never covers the
+            // spot being hovered; that would send the bar a "leave" and make the bubble blink.
+            let px = x.clamp(x0, x1) as i32;
+            hover.set_pointing_to(Some(&gdk::Rectangle::new(px, -6, 1, 1)));
+            if !hover.is_visible() {
+                hover.popup();
+            }
         }
-        let frac = (x as f64 / s.width().max(1) as f64).clamp(0.0, 1.0);
-        tip.set_text(Some(&hms(adj.lower() + frac * (adj.upper() - adj.lower()))));
-        true
+    };
+    hover_motion.connect_enter({
+        let show = show_hover.clone();
+        move |_, x, _| show(x)
+    });
+    hover_motion.connect_motion(move |_, x, _| show_hover(x));
+    // Hide shortly after leaving, unless the pointer comes back (a jitter at the edge).
+    hover_motion.connect_leave({
+        let (hover, hover_gen) = (hover.clone(), hover_gen.clone());
+        move |_| {
+            let (hover, hover_gen, at_leave) = (hover.clone(), hover_gen.clone(), hover_gen.get());
+            glib::timeout_add_local_once(Duration::from_millis(150), move || {
+                if hover_gen.get() == at_leave {
+                    hover.popdown();
+                }
+            });
         }
     });
+    seek.add_controller(hover_motion);
 
     // --- volume ---
     volume.connect_value_changed(move |v| {
