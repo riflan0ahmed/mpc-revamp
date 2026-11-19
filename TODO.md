@@ -46,10 +46,18 @@ Each phase ends with a build that runs, then stops for review.
       `remember_file_pos` in `config.toml` until the Options page exists)
 
 ## Phase 5 — Settings
-- [ ] TOML config in `$XDG_CONFIG_HOME/mpc-rs/config.toml`, with defaults matching MPC's
-- [ ] Options dialog with a tree of pages, like `PPage*`: Player, Formats, Keys, Logo, Web Interface, Playback, Output, Shaders, Fullscreen, Sync, Audio, Subtitles, Subtitle style, Misc, Tweaks, Advanced
-- [ ] Single instance; open in the running player or add to its playlist
-- [ ] Command line switches (same as MPC's where they make sense: `/play`, `/close`, `/fullscreen`, `/start`, `/add`, `/sub`, ...)
+- [x] TOML config in `$XDG_CONFIG_HOME/mpc-rs/config.toml`, with defaults matching MPC's
+- [x] Options dialog with a tree of pages, like `PPage*`: Player, Keys, Logo, Playback, Fullscreen, Tweaks,
+      Miscellaneous (color controls, reset, export). The other pages come with their features:
+      Formats and Web Interface (phase 9), Output, Shaders and Sync (phase 7), Audio, Subtitles and
+      Subtitle style (phase 6), Advanced (once there are settings without a page)
+- [x] Single instance; open in the running player or add to its playlist ("Open a new player for each
+      media file" and `/new` start a separate one)
+- [x] Command line switches (same as MPC's where they make sense: `/open`, `/play`, `/close`, `/playnext`,
+      `/add`, `/new`, `/fullscreen`, `/minimized`, `/viewpreset`, `/randomize`, `/start`, `/startpos`, `/sub`,
+      `/dub`, `/volume`, `/mute`, `/fixedsize`, `/nofocus`, `/reset`, `/help`); also as `-x` / `--x`
+- [x] After Playback setting: do nothing / play next file in folder / rewind / close / exit
+- Not possible on Wayland: remember window position, fullscreen monitor and display mode switching
 
 ## Phase 6 — Tracks, audio, subtitles
 - [ ] Audio, video and subtitle track menus; preferred languages
@@ -87,7 +95,7 @@ Each phase ends with a build that runs, then stops for review.
 - [ ] MPRIS D-Bus service (play/pause, seek, metadata)
 - [ ] JSON control socket as the replacement for the `MpcApi.h` commands
 - [ ] `.desktop` file, MIME associations, icons
-- [ ] After playback: nothing / next in folder / exit / suspend / shutdown / lock
+- [ ] Play > After Playback menu (one-shot): also suspend / hibernate / shutdown / log off / lock / monitor off
 - [ ] Translations (gettext; reuse the PO files in `mpcresources/PO`)
 
 ## Phase 10 — DVB TV

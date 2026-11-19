@@ -2,8 +2,9 @@
 //! Layout and default keys follow MPC-HC (`MainFrm.cpp`, `default_wmcmds` in `AppSettings.cpp`).
 
 use crate::{
+    cmdline::CmdLine,
     commands::{self, Binding, COMMANDS, Click, Media, Mouse},
-    config::{self, Config, History, RepeatMode},
+    config::{self, AfterPlayback, Config, History, RepeatMode, TitleBar},
     mpris::Mpris,
     options,
     playlist::{self, Entry, Playlist},
@@ -20,11 +21,6 @@ use std::{
 };
 
 const SUB_EXTS: &[&str] = &["srt", "ass", "ssa", "sub", "idx", "sup", "vtt", "smi", "usf"];
-const VOLUME_STEP: &str = "5"; // MPC nVolumeStep
-// MPC DEFAULT_JUMPDISTANCE_1/2/3 (1000 / 5000 / 20000 ms)
-const SEEK_SMALL: i32 = 1;
-const SEEK_MED: i32 = 5;
-const SEEK_LARGE: i32 = 20;
 
 /// Bars that the View menu toggles, in top-to-bottom order: (action name, label, shown in Normal preset).
 const BARS: &[(&str, &str, bool)] = &[
@@ -67,6 +63,16 @@ struct Ui {
     /// The file mpv was last asked to load (for its saved position) and whether its end was handled.
     loaded: RefCell<Option<String>>,
     eof_handled: Cell<bool>,
+    /// "Play N times": how often the current file / the playlist has been repeated so far.
+    file_loops: Cell<u32>,
+    playlist_loops: Cell<u32>,
+    /// One-shot options for the next file, from the command line (/start, /open).
+    start_at: Cell<Option<f64>>,
+    start_paused: Cell<bool>,
+    /// /close or /playnext override the After Playback setting for this run.
+    after_override: Cell<Option<AfterPlayback>>,
+    /// Fullscreen: when the pointer was last near the bottom edge (controls stay up for the hide delay).
+    fs_zone_at: Cell<Option<Instant>>,
 }
 
 thread_local! {
@@ -108,14 +114,50 @@ fn apply_keys(ui: &Ui) {
 
 fn open_options(ui: &Rc<Ui>) {
     let implemented: Vec<bool> = COMMANDS.iter().map(|c| ui.win.lookup_action(c.action).is_some()).collect();
-    let current = ui.bindings.borrow().clone();
+    let current = ui.cfg.borrow().clone();
     let ui = ui.clone();
     options::show(&ui.win.clone(), current, implemented, move |new| {
-        *ui.bindings.borrow_mut() = new;
-        apply_keys(&ui);
-        ui.cfg.borrow_mut().keys = commands::overrides(&ui.bindings.borrow());
+        *ui.cfg.borrow_mut() = new;
         save_config(&ui);
+        apply_settings(&ui);
     });
+}
+
+/// Make the running player follow the settings (after Options > OK/Apply, and at startup).
+fn apply_settings(ui: &Ui) {
+    *ui.bindings.borrow_mut() = commands::load(&ui.cfg.borrow().keys);
+    apply_keys(ui);
+    let cfg = ui.cfg.borrow().clone();
+    let auto = |on: bool| if on { "fuzzy" } else { "no" };
+    let langs = |s: &str| s.split([',', ' ', ';']).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(",");
+    for (name, value) in [
+        ("sub-auto", auto(cfg.autoload_subtitles).to_string()),
+        ("audio-file-auto", auto(cfg.autoload_audio).to_string()),
+        ("slang", langs(&cfg.subtitle_langs)),
+        ("alang", langs(&cfg.audio_langs)),
+    ] {
+        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
+            eprintln!("mpv {name}: {e}");
+        }
+    }
+    // MPC's color controls are -100..100, hue -180..180; mpv's are all -100..100.
+    for (name, v) in [("brightness", cfg.brightness), ("contrast", cfg.contrast), ("hue", cfg.hue * 100 / 180), ("saturation", cfg.saturation)] {
+        let _ = ui.mpv.set_property(name, v as i64);
+    }
+    let custom = (!cfg.logo_file.is_empty()).then(|| gdk::Texture::from_filename(&cfg.logo_file).ok()).flatten();
+    match custom {
+        Some(t) => ui.logo.set_paintable(Some(&t)),
+        None => ui.logo.set_paintable(Some(&gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../res/logo.png"))).unwrap())),
+    }
+    ui.pl.borrow_mut().shuffle = cfg.shuffle;
+    ui.marks.set((-1, -1)); // rebuild (or drop) the chapter marks
+    sync_repeat(ui);
+    if !cfg.keep_history && !ui.history.borrow().recent.is_empty() {
+        ui.history.borrow_mut().recent.clear();
+        config::save_history(&ui.history.borrow());
+    }
+    refresh_recent(ui);
+    relayout(ui);
 }
 
 fn prop<T: GetData>(mpv: &Mpv, name: &str) -> Option<T> {
@@ -172,6 +214,7 @@ fn open_targets(ui: &Ui, targets: &[String], append: bool) {
         let mut pl = ui.pl.borrow_mut();
         if !append {
             pl.clear();
+            ui.playlist_loops.set(0);
         }
         pl.add(entries)
     };
@@ -230,27 +273,32 @@ fn play(ui: &Ui, idx: usize) {
     ui.stopped.set(false);
     // The old file may still report eof-reached for a moment; the flag clears once the new one plays.
     ui.eof_handled.set(true);
+    ui.file_loops.set(0);
     cmd(ui.mpv, "loadfile", &[&path, "replace"]);
-    let _ = ui.mpv.set_property("pause", false);
-    let max = ui.cfg.borrow().recent_files_number;
-    ui.history.borrow_mut().add_recent(&path, max);
-    config::save_history(&ui.history.borrow());
-    refresh_recent(ui);
+    let _ = ui.mpv.set_property("pause", ui.start_paused.replace(false));
+    if ui.cfg.borrow().keep_history {
+        let max = ui.cfg.borrow().recent_files_number;
+        ui.history.borrow_mut().add_recent(&path, max);
+        config::save_history(&ui.history.borrow());
+        refresh_recent(ui);
+    }
     ui.plbar.refresh();
 }
 
 /// mpv has opened the file: add its subtitles, restore its position, note its duration.
 fn on_loaded(ui: &Ui) {
     let Some(cur) = ui.pl.borrow().current else { return };
-    let subs = ui.pl.borrow().items.get(cur).map(|e| e.subs.clone()).unwrap_or_default();
+    let (subs, audio) = ui.pl.borrow().items.get(cur).map(|e| (e.subs.clone(), e.audio.clone())).unwrap_or_default();
     for s in subs {
         cmd(ui.mpv, "sub-add", &[&s]);
     }
-    if ui.cfg.borrow().remember_file_pos {
-        let path = ui.loaded.borrow().clone().unwrap_or_default();
-        if let Some(pos) = ui.history.borrow().position(&path) {
-            cmd(ui.mpv, "seek", &[&pos.to_string(), "absolute"]);
-        }
+    for a in audio {
+        cmd(ui.mpv, "audio-add", &[&a]);
+    }
+    let path = ui.loaded.borrow().clone().unwrap_or_default();
+    let remembered = if ui.cfg.borrow().remember_file_pos { ui.history.borrow().position(&path) } else { None };
+    if let Some(pos) = ui.start_at.take().or(remembered) {
+        cmd(ui.mpv, "seek", &[&pos.to_string(), "absolute"]);
     }
     if let Some(d) = prop::<f64>(ui.mpv, "duration").filter(|d| *d > 0.0) {
         if let Some(e) = ui.pl.borrow_mut().items.get_mut(cur) {
@@ -266,15 +314,117 @@ fn on_eof(ui: &Ui) {
         ui.history.borrow_mut().set_position(&path, None, 0);
         config::save_history(&ui.history.borrow());
     }
-    let (forever, mode) = (ui.cfg.borrow().repeat_forever, ui.cfg.borrow().repeat_mode);
-    if forever && mode == RepeatMode::File {
+    let (forever, mode, loops) = {
+        let c = ui.cfg.borrow();
+        (c.repeat_forever, c.repeat_mode, c.loops.max(1))
+    };
+    // "Play N times" / "Repeat forever" (Options > Playback, Play > Repeat).
+    if mode == RepeatMode::File && (forever || ui.file_loops.get() + 1 < loops) {
+        ui.file_loops.set(ui.file_loops.get() + 1);
         cmd(ui.mpv, "seek", &["0", "absolute"]);
         let _ = ui.mpv.set_property("pause", false);
         return;
     }
-    let next = ui.pl.borrow_mut().step(1, forever, &mut rand);
-    if let Some(i) = next {
-        play(ui, i);
+    let mut next = ui.pl.borrow_mut().step(1, false, &mut rand);
+    if next.is_none() && mode == RepeatMode::Playlist && (forever || ui.playlist_loops.get() + 1 < loops) {
+        ui.playlist_loops.set(ui.playlist_loops.get() + 1);
+        next = ui.pl.borrow_mut().step(1, true, &mut rand);
+    }
+    match next {
+        Some(i) => play(ui, i),
+        None => after_playback(ui),
+    }
+}
+
+/// End of the playlist: MPC's "After Playback" (or /close, /playnext for this run).
+fn after_playback(ui: &Ui) {
+    let (setting, exit_fs) = (ui.cfg.borrow().after_playback, ui.cfg.borrow().exit_fullscreen_at_end);
+    match ui.after_override.get().unwrap_or(setting) {
+        AfterPlayback::DoNothing => {}
+        AfterPlayback::PlayNext => {
+            let next = ui.loaded.borrow().clone().and_then(|p| playlist::folder_neighbor(&p, 1));
+            if let Some(f) = next {
+                open_targets(ui, &[f], false);
+                return;
+            }
+        }
+        AfterPlayback::Rewind => {
+            cmd(ui.mpv, "seek", &["0", "absolute"]);
+            let _ = ui.mpv.set_property("pause", true);
+            ui.stopped.set(true);
+        }
+        AfterPlayback::Close => close_media(ui),
+        AfterPlayback::Exit => {
+            ui.win.close();
+            return;
+        }
+    }
+    if exit_fs {
+        ui.win.unfullscreen();
+    }
+}
+
+/// File > Close: unload the file, keep the playlist.
+fn close_media(ui: &Ui) {
+    save_position(ui);
+    cmd(ui.mpv, "stop", &[]);
+    ui.loaded.take();
+    ui.pl.borrow_mut().current = None;
+    ui.plbar.refresh();
+}
+
+/// The command line of this launch, or of a later one handed over to this running player.
+pub fn command_line(app: &gtk::Application, mpv: &'static Mpv, c: CmdLine) {
+    let fresh = app.active_window().is_none();
+    if fresh || !c.nofocus {
+        window(app, mpv);
+    }
+    let Some(ui) = UI.with_borrow(|u| u.clone()) else { return };
+    if let Some(n) = c.viewpreset {
+        act(&ui.win, ["view-presets-minimal", "view-presets-compact", "view-presets-normal"][n as usize - 1]);
+    }
+    if let Some((w, h)) = c.fixedsize {
+        ui.win.set_default_size(w, h);
+    }
+    if let Some(v) = c.volume {
+        let _ = mpv.set_property("volume", v as i64);
+    }
+    if c.mute {
+        let _ = mpv.set_property("mute", true);
+    }
+    if c.close {
+        ui.after_override.set(Some(AfterPlayback::Exit));
+    } else if c.playnext {
+        ui.after_override.set(Some(AfterPlayback::PlayNext));
+    }
+    if c.fullscreen || (fresh && ui.cfg.borrow().launch_fullscreen && !c.files.is_empty()) {
+        ui.win.fullscreen();
+    }
+    if c.minimized {
+        ui.win.minimize();
+    }
+    if c.files.is_empty() {
+        if c.play {
+            start_playlist(&ui);
+        }
+        return;
+    }
+    ui.start_at.set(c.start);
+    ui.start_paused.set(c.open && !c.play);
+    let before = ui.pl.borrow().items.len();
+    let first = if c.add { before } else { 0 };
+    open_targets(&ui, &c.files, c.add);
+    {
+        let mut pl = ui.pl.borrow_mut();
+        if let Some(e) = pl.items.get_mut(first) {
+            e.subs.extend(c.subs.iter().cloned());
+            e.audio.extend(c.dubs.iter().cloned());
+        }
+    }
+    if c.randomize {
+        ui.pl.borrow_mut().randomize(&mut rand);
+        playlist_changed(&ui);
+        play(&ui, 0);
     }
 }
 
@@ -295,6 +445,9 @@ fn skip_file(ui: &Ui, dir: i64) {
         (pl.items.len(), pl.current.and_then(|c| pl.items.get(c)).map(|e| e.path.clone()))
     };
     if len <= 1 {
+        if !ui.cfg.borrow().search_in_folder {
+            return;
+        }
         if let Some(f) = path.and_then(|p| playlist::folder_neighbor(&p, dir)) {
             open_targets(ui, &[f], false);
         }
@@ -328,12 +481,9 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         return;
     }
 
-    let win = gtk::ApplicationWindow::builder()
-        .application(app)
-        .title("mpc-rs")
-        .default_width(960)
-        .default_height(620)
-        .build();
+    let cfg = config::load();
+    let (w, h) = if cfg.remember_window_size { cfg.window_size } else { Config::default().window_size };
+    let win = gtk::ApplicationWindow::builder().application(app).title("mpc-rs").default_width(w).default_height(h).build();
 
     // --- widgets ---
     let recent = gio::Menu::new();
@@ -398,7 +548,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     status.append(&state);
     status.append(&time);
 
-    let cfg = config::load();
     let pl = Rc::new(RefCell::new(Playlist::default()));
     pl.borrow_mut().shuffle = cfg.shuffle;
     if cfg.remember_playlist {
@@ -488,16 +637,30 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         recent,
         loaded: RefCell::new(None),
         eof_handled: Cell::new(false),
+        file_loops: Cell::new(0),
+        playlist_loops: Cell::new(0),
+        start_at: Cell::new(None),
+        start_paused: Cell::new(false),
+        after_override: Cell::new(None),
+        fs_zone_at: Cell::new(None),
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
     add_actions(app, &ui);
-    apply_keys(&ui);
-    refresh_recent(&ui);
+    apply_settings(&ui);
+    let _ = mpv.set_property("volume", ui.cfg.borrow().volume as i64);
     win.connect_close_request({
         let ui = ui.clone();
-        move |_| {
+        move |win| {
             save_position(&ui);
+            // MPC keeps the last volume (and, if asked, the window size) for the next start.
+            let mut cfg = ui.cfg.borrow_mut();
+            cfg.volume = prop::<f64>(ui.mpv, "volume").map_or(cfg.volume, |v| v.round() as u32);
+            if cfg.remember_window_size && !win.is_fullscreen() && !win.is_maximized() {
+                cfg.window_size = (win.width(), win.height());
+            }
+            drop(cfg);
+            save_config(&ui);
             glib::Propagation::Proceed
         }
     });
@@ -511,14 +674,17 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             glib::Propagation::Proceed
         }
     });
-    seek.connect_query_tooltip(|s, x, _, _, tip| {
+    seek.connect_query_tooltip({
+        let ui = ui.clone();
+        move |s, x, _, _, tip| {
         let adj = s.adjustment();
-        if adj.upper() <= 1.0 {
+        if adj.upper() <= 1.0 || !ui.cfg.borrow().time_tooltip {
             return false;
         }
         let frac = (x as f64 / s.width().max(1) as f64).clamp(0.0, 1.0);
         tip.set_text(Some(&hms(adj.lower() + frac * (adj.upper() - adj.lower()))));
         true
+        }
     });
 
     // --- volume ---
@@ -580,18 +746,19 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         move |_, _, y| {
             ui.last_motion.set(Instant::now());
             ui.video.set_cursor(None);
-            let reveal = ui.win.is_fullscreen() && y > ui.win.height() as f64 - 150.0;
-            if reveal != ui.fs_reveal.get() {
-                ui.fs_reveal.set(reveal);
-                relayout(&ui);
+            if ui.win.is_fullscreen() && y > ui.win.height() as f64 - 150.0 {
+                ui.fs_zone_at.set(Some(Instant::now()));
             }
+            update_fs_reveal(&ui);
         }
     });
     win.add_controller(motion);
     win.connect_fullscreened_notify({
         let ui = ui.clone();
         move |_| {
+            ui.fs_zone_at.set(None);
             ui.fs_reveal.set(false);
+            update_fs_reveal(&ui);
             relayout(&ui);
         }
     });
@@ -626,7 +793,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     win.present();
 }
 
-/// Show/hide bars from the View toggles; in fullscreen only seek bar + controls, and only when revealed.
 /// Repeat menu check marks from the config (File and Playlist act as radio items).
 fn sync_repeat(ui: &Ui) {
     let (forever, mode) = (ui.cfg.borrow().repeat_forever, ui.cfg.borrow().repeat_mode);
@@ -642,13 +808,28 @@ fn sync_repeat(ui: &Ui) {
     }
 }
 
+/// Fullscreen controls show while the pointer is near the bottom edge, and for the hide delay after
+/// (Options > Fullscreen), or always when hiding is off.
+fn update_fs_reveal(ui: &Ui) {
+    let (hide, delay) = (ui.cfg.borrow().hide_fullscreen_controls, ui.cfg.borrow().hide_fullscreen_controls_delay_ms);
+    let near = ui.fs_zone_at.get().is_some_and(|t| t.elapsed() <= Duration::from_millis(delay as u64 + 100));
+    let reveal = ui.win.is_fullscreen() && (!hide || near);
+    if reveal != ui.fs_reveal.get() {
+        ui.fs_reveal.set(reveal);
+        relayout(ui);
+    }
+}
+
+/// Show/hide bars from the View toggles. In fullscreen only the seek bar and controls (when revealed)
+/// and the playlist (unless hidden on fullscreen, or docked panels hide with the controls).
 fn relayout(ui: &Ui) {
     let fs = ui.win.is_fullscreen();
     for (name, w) in &ui.bars {
         let on = ui.win.action_state(name).and_then(|v| v.get::<bool>()).unwrap_or(true);
+        let cfg = ui.cfg.borrow();
         let fs_ok = match *name {
             "view-seeker" | "view-controls" => ui.fs_reveal.get(),
-            "view-playlist" => !ui.cfg.borrow().hide_playlist_fullscreen,
+            "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
             _ => false,
         };
         w.set_visible(on && (!fs || fs_ok));
@@ -691,7 +872,7 @@ fn update(ui: &Ui) {
         ui.seek.set_range(0.0, dur.max(1.0));
         ui.seek.set_value(pos);
     }
-    let chapters = prop::<i64>(mpv, "chapters").unwrap_or(0);
+    let chapters = if ui.cfg.borrow().show_chapter_marks { prop::<i64>(mpv, "chapters").unwrap_or(0) } else { 0 };
     let key = (chapters, (dur * 1000.0) as i64);
     if ui.marks.get() != key {
         ui.marks.set(key);
@@ -735,7 +916,7 @@ fn update(ui: &Ui) {
     });
     ui.time.set_label(&if idle { String::new() } else { format!("{} / {}", hms(pos), hms(dur)) });
     let title = if idle { None } else { prop::<String>(mpv, "media-title") };
-    ui.win.set_title(Some(title.as_deref().unwrap_or("mpc-rs")));
+    ui.win.set_title(Some(&window_title(ui, idle)));
     ui.logo.set_visible(idle || !prop::<bool>(mpv, "vo-configured").unwrap_or(false));
 
     if ui.info.is_visible() {
@@ -756,9 +937,27 @@ fn update(ui: &Ui) {
         ));
     }
 
-    // Fullscreen: hide the cursor after 2 s without mouse movement.
-    if ui.win.is_fullscreen() && ui.last_motion.get().elapsed() > Duration::from_secs(2) {
+    // Hide the cursor after 2 s without mouse movement: in fullscreen, and during playback in a window
+    // (Options > Tweaks).
+    let hide_cursor = ui.win.is_fullscreen() || (ui.cfg.borrow().hide_windowed_mouse_pointer && state == "Playing");
+    if hide_cursor && ui.last_motion.get().elapsed() > Duration::from_secs(2) {
         ui.video.set_cursor_from_name(Some("none"));
+    }
+    update_fs_reveal(ui);
+}
+
+/// MPC's title bar setting: full path, file name (or the media's own title), or just the program name.
+fn window_title(ui: &Ui, idle: bool) -> String {
+    let path = ui.loaded.borrow().clone().filter(|_| !idle);
+    let Some(path) = path else { return "mpc-rs".into() };
+    let cfg = ui.cfg.borrow();
+    match cfg.title_bar {
+        TitleBar::FullPath => path,
+        TitleBar::FileName => {
+            let tagged = prop::<String>(ui.mpv, "metadata/by-key/title").filter(|_| cfg.title_bar_media_title);
+            tagged.unwrap_or_else(|| Entry::new(path).title())
+        }
+        TitleBar::NoPrefix => "mpc-rs".into(),
     }
 }
 
@@ -844,7 +1043,15 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         a.connect_activate(move |_, _| f());
         win.add_action(&a);
     };
-    let seek = |name: &str, secs: i32| add(name, Box::new(move || cmd(mpv, "seek", &[&secs.to_string()])));
+    // Jump distances and fast (keyframe) seeking come from Options > Tweaks.
+    let seek = |name: &str, dir: i32, dist: fn(&Config) -> u32| {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            let (ms, fast) = (dist(&ui.cfg.borrow()), ui.cfg.borrow().fast_seek);
+            let secs = format!("{}", dir as f64 * ms as f64 / 1000.0);
+            cmd(mpv, "seek", &[&secs, if fast { "relative+keyframes" } else { "relative+exact" }]);
+        }))
+    };
 
     // File
     add("file-openquick", Box::new({
@@ -874,13 +1081,7 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
     }));
     add("file-close-and-restore", Box::new({
         let ui = ui.clone();
-        move || {
-            save_position(&ui);
-            cmd(mpv, "stop", &[]);
-            ui.loaded.take();
-            ui.pl.borrow_mut().current = None;
-            ui.plbar.refresh();
-        }
+        move || close_media(&ui)
     }));
     let open_recent = gio::SimpleAction::new("open-recent", Some(glib::VariantTy::STRING));
     open_recent.connect_activate({
@@ -936,15 +1137,20 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
     }));
     add("play-framestep", Box::new(move || cmd(mpv, "frame-step", &[])));
     add("play-framestepcancel", Box::new(move || cmd(mpv, "frame-back-step", &[])));
-    seek("play-seekforwardsmall", SEEK_SMALL);
-    seek("play-seekbackwardsmall", -SEEK_SMALL);
-    seek("play-seekforwardmed", SEEK_MED);
-    seek("play-seekbackwardmed", -SEEK_MED);
-    seek("play-seekforwardlarge", SEEK_LARGE);
-    seek("play-seekbackwardlarge", -SEEK_LARGE);
+    seek("play-seekforwardsmall", 1, |c| c.jump_small_ms);
+    seek("play-seekbackwardsmall", -1, |c| c.jump_small_ms);
+    seek("play-seekforwardmed", 1, |c| c.jump_medium_ms);
+    seek("play-seekbackwardmed", -1, |c| c.jump_medium_ms);
+    seek("play-seekforwardlarge", 1, |c| c.jump_large_ms);
+    seek("play-seekbackwardlarge", -1, |c| c.jump_large_ms);
     add("play-seekset", Box::new(move || cmd(mpv, "seek", &["0", "absolute"])));
-    add("volume-up", Box::new(move || cmd(mpv, "add", &["volume", VOLUME_STEP])));
-    add("volume-down", Box::new(move || cmd(mpv, "add", &["volume", &format!("-{VOLUME_STEP}")])));
+    for (name, dir) in [("volume-up", 1), ("volume-down", -1)] {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            let step = ui.cfg.borrow().volume_step as i64 * dir;
+            cmd(mpv, "add", &["volume", &step.to_string()]);
+        }));
+    }
     add("volume-mute", Box::new(move || cmd(mpv, "cycle", &["mute"])));
 
     // Navigate: chapters first, then files (MPC "skip back/forward"); the "file" variants skip files only.
