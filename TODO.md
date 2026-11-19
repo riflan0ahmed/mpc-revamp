@@ -130,6 +130,28 @@ Each phase ends with a build that runs, then stops for review.
 - [ ] EPG / now-next info: mpv doesn't expose the program guide; it would need our own EIT parsing of
       the transport stream (and a tuner to develop it with)
 
+## Packaging (Linux)
+- [x] Flatpak bundle on GitHub Releases (`packaging/build-flatpak.sh`, GNOME 51 runtime, bundled
+      libmpv 0.41 and FFmpeg 7.1)
+- [ ] AUR: `packaging/aur/PKGBUILD` is built and tested in an Arch container; upload it once AUR
+      registration reopens, then switch the README to `yay -S mpc-rv`
+- [ ] `.deb`: build on Ubuntu 24.04 (podman container) for wide coverage. Needs fallbacks for mpv
+      older than 0.38 (`volume-gain`, `sub-outline-*` were `sub-border-*`, no `sub-border-style`).
+      Check the striped/black video seen with GTK 4.14 + Mesa software rendering on a real 24.04 system
+- [ ] AppImage: same Ubuntu 24.04 base (linuxdeploy + its GTK plugin); same mpv and video checks as the `.deb`
+- [ ] Flathub store listing:
+  - [ ] New app ID `io.github.riflan0ahmed.MpcRevamp` (Flathub needs the GitHub account in the ID);
+        change it in `integration::APP_ID`, the desktop file, metainfo, icons and the recipe;
+        release as 1.0.1
+  - [ ] Offline build: `cargo-sources.json` from flatpak-cargo-generator, no network while building;
+        app source from the git tag + commit; pin LuaJIT and libplacebo to commits
+  - [ ] Metainfo screenshots; pass `flatpak-builder-lint`
+  - [ ] Keep the features that need permissions: `--filesystem=host`, `--device=all` (discs, capture,
+        DVB), `--share=network` (streams), MPRIS own-name; explain the After Playback system actions
+        (logind, SessionManager, ScreenSaver) in the submission
+  - [ ] Decide on the icon: Flathub may ask for something more distinct than the badged MPC "321" icon
+  - [ ] Open the PR to `flathub/flathub`
+
 ## Phase 11 — Windows port
 - [ ] Build on Windows (MSVC or MSYS2 GTK4), bundle the GTK and libmpv DLLs
 - [ ] Single instance / IPC on Windows; optionally the `WM_COPYDATA` API for compatibility
