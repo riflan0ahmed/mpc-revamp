@@ -10,6 +10,8 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
   are empty and not needed.
 - `mpc-rs/` — the new Rust project (Cargo).
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
+- Tests: unit tests inline (`#[cfg(test)] mod tests`) for private details; integration tests in
+  `mpc-rs/tests/` for anything reachable through the `mpc_rs` library (`src/lib.rs`; `main.rs` stays thin).
 
 ## Stack
 

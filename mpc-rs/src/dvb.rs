@@ -158,19 +158,3 @@ fn read_lines(stream: gio::DataInputStream, log: gtk::TextView) {
         }
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_names() {
-        let zap = "# dvbv5-scan -O ZAP\nDas Erste HD:474000000:INVERSION_AUTO:BANDWIDTH_8_MHZ:FEC_AUTO:FEC_AUTO:QAM_AUTO:TRANSMISSION_MODE_AUTO:GUARD_INTERVAL_AUTO:HIERARCHY_NONE:5121:5122:28721\n\n";
-        let vdr = "ZDF;ZDFvision:11953:HC34M2S0:S19.2E:27500:110=2:120=deu:130:0:28006:1:1079:0\n";
-        assert_eq!(parse_channels(zap), ["Das Erste HD"]);
-        assert_eq!(parse_channels(vdr), ["ZDF"]);
-        assert_eq!(parse_channels("garbage\n"), Vec::<String>::new());
-        assert_eq!(channel_url("Das Erste HD"), "dvb://Das Erste HD");
-        assert!(is_dvb("dvb://X") && !is_dvb("/x.ts"));
-    }
-}

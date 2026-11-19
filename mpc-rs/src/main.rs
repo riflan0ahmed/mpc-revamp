@@ -1,22 +1,4 @@
-mod cmdline;
-mod commands;
-mod config;
-mod dialogs;
-mod dvb;
-mod i18n;
-mod integration;
-mod mpris;
-mod options;
-mod playlist;
-mod playlistbar;
-mod remote;
-mod shaders;
-mod subresync;
-mod subtitles;
-mod ui;
-mod video;
-mod view;
-
+use mpc_rs::{cmdline, config, i18n, integration, ui};
 use gtk4::{self as gtk, gio, glib, prelude::*};
 use libmpv2::Mpv;
 

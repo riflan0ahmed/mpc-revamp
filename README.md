@@ -55,6 +55,19 @@ devices (v4l2), and network streams (`http://`, `https://` and anything else mpv
 Encrypted DVDs need `libdvdcss`. DVD and Blu-ray menus aren't supported (mpv plays the titles
 directly).
 
+## Tests
+
+```sh
+cd mpc-rs
+cargo test
+```
+
+Unit tests sit next to the code they test (`#[cfg(test)] mod tests` at the bottom of a file) and cover
+private details. Integration tests in `mpc-rs/tests/` use the crate's public API, the way other code
+would: playlists and their file formats, subtitles, settings and history, the command line, key
+bindings, discs and TV channels, desktop integration. The app itself is a thin `main.rs` over the
+`mpc_rs` library (`src/lib.rs`), so both kinds of tests can reach the code.
+
 ## Repository layout
 
 | Path | Contents |

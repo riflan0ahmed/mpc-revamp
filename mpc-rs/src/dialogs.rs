@@ -354,22 +354,3 @@ pub fn save_copy(parent: &gtk::Window, source: &str) {
         });
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disc_urls() {
-        let dir = std::env::temp_dir().join(format!("mpc-rs-disc-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("dvd/VIDEO_TS")).unwrap();
-        std::fs::create_dir_all(dir.join("bd/BDMV")).unwrap();
-        let abs = dir.canonicalize().unwrap();
-        assert_eq!(disc_url(&dir.join("dvd")), Some(format!("dvd:///{}/dvd", abs.display())));
-        assert_eq!(disc_url(&dir.join("dvd/VIDEO_TS")), Some(format!("dvd:///{}/dvd", abs.display())));
-        assert_eq!(disc_url(&dir.join("bd")), Some(format!("bd:///{}/bd", abs.display())));
-        assert_eq!(disc_url(&dir), None);
-        assert!(is_disc_url("cdda:////dev/sr0") && !is_disc_url("/x.mkv"));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
