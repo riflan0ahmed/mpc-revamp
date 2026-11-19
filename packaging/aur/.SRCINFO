@@ -14,11 +14,14 @@ pkgbase = mpc-rv
 	depends = cairo
 	depends = pango
 	depends = gdk-pixbuf2
-	depends = graphene
+	depends = libglvnd
+	depends = libgcc
+	depends = glibc
 	depends = hicolor-icon-theme
 	optdepends = libdvdcss: play encrypted DVDs
 	optdepends = v4l-utils: capture devices
 	optdepends = dvb-tools: scan for DVB TV channels (Navigate > Tuner Scan)
+	options = !debug
 	source = git+https://github.com/riflan0ahmed/mpc-revamp.git#tag=v1.0.0
 	sha256sums = SKIP
 

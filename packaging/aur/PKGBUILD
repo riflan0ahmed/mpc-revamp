@@ -10,11 +10,12 @@ pkgdesc='Unofficial Rust rewrite of Media Player Classic - Home Cinema, with lib
 arch=('x86_64' 'aarch64')
 url='https://github.com/riflan0ahmed/mpc-revamp'
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'mpv' 'glib2' 'cairo' 'pango' 'gdk-pixbuf2' 'graphene' 'hicolor-icon-theme')
+depends=('gtk4' 'mpv' 'glib2' 'cairo' 'pango' 'gdk-pixbuf2' 'libglvnd' 'libgcc' 'glibc' 'hicolor-icon-theme')
 makedepends=('cargo' 'git')
 optdepends=('libdvdcss: play encrypted DVDs'
             'v4l-utils: capture devices'
             'dvb-tools: scan for DVB TV channels (Navigate > Tuner Scan)')
+options=('!debug') # a release build has no debug symbols to split off
 source=("git+$url.git#tag=v$pkgver")
 sha256sums=('SKIP')
 

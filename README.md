@@ -39,7 +39,7 @@ what's planned.
 | Package | Distributions | Status |
 |---|---|---|
 | Flatpak | Any Linux distribution | Ready (1.0.0) |
-| AUR (`mpc-rv`) | Arch Linux, Manjaro, EndeavourOS | Ready (1.0.0) |
+| AUR (`mpc-rv`) | Arch Linux, Manjaro, EndeavourOS | Coming soon (build it from this repo now) |
 | `.deb` | Debian, Ubuntu, Linux Mint | Not ready yet |
 | AppImage | Any Linux distribution | Not ready yet |
 
@@ -74,11 +74,12 @@ Differences in the Flatpak version:
 
 ### Arch Linux (AUR)
 
-Install the `mpc-rv` package with an AUR helper, for example `yay -S mpc-rv`, or by hand:
+The `mpc-rv` package isn't on the AUR yet. Until it is, build and install it from the PKGBUILD
+in this repository:
 
 ```sh
-git clone https://aur.archlinux.org/mpc-rv.git
-cd mpc-rv
+git clone https://github.com/riflan0ahmed/mpc-revamp.git
+cd mpc-revamp/packaging/aur
 makepkg -si
 ```
 
