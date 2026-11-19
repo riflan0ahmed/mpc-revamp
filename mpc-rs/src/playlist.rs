@@ -51,6 +51,9 @@ impl Entry {
         if let Some(l) = &self.label {
             return l.clone();
         }
+        if let Some(channel) = self.path.strip_prefix("dvb://") {
+            return channel.to_string();
+        }
         if self.path.contains("://") {
             return self.path.clone();
         }

@@ -2,6 +2,7 @@ mod cmdline;
 mod commands;
 mod config;
 mod dialogs;
+mod dvb;
 mod i18n;
 mod integration;
 mod mpris;

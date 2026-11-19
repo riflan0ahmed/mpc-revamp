@@ -121,9 +121,14 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Translations from MPC's PO files (42 languages, `res/po`): menus, Options and the Keys page.
       Options > Player > Language (system default unless set); takes effect at the next start
 
-## Phase 10 — DVB TV
-- [ ] Tuner setup and channel scan (`dvb://`)
-- [ ] Channel list, switching, EPG / now-next info
+## Phase 10 — DVB TV (untested: no tuner on the development machine)
+- [x] Tuner setup and channel scan (Navigate > Tuner Scan, Shift+T): runs `dvbv5-scan` for a tuner and a
+      region table into `~/.config/mpc-rs/channels.conf` (needs `dvb-tools` and `dtv-scan-tables`);
+      mpv plays the channels as `dvb://<name>`
+- [x] Channel list and switching: Navigation bar (View > Navigation, Ctrl+9), Previous/Next switch
+      channels while watching TV, channel name on the OSD
+- [ ] EPG / now-next info: mpv doesn't expose the program guide; it would need our own EIT parsing of
+      the transport stream (and a tuner to develop it with)
 
 ## Phase 11 — Windows port
 - [ ] Build on Windows (MSVC or MSYS2 GTK4), bundle the GTK and libmpv DLLs

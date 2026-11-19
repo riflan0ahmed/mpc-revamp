@@ -6,7 +6,7 @@ use crate::{
     commands::{self, Binding, COMMANDS, Click, Media, Mouse},
     i18n::tr,
     config::{self, AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom},
-    dialogs,
+    dialogs, dvb,
     integration::{self, SystemAction},
     mpris::{self, Mpris, PlayerState},
     options,
@@ -102,6 +102,8 @@ struct Ui {
     /// Capture bar (View > Capture): device name, record button.
     capture_label: gtk::Label,
     record: gtk::ToggleButton,
+    /// Navigation bar (View > Navigation): the DVB channel list.
+    channel_list: gtk::ListBox,
     /// The window's rows, and the fullscreen panel that the seek bar, controls and status move into.
     vbox: gtk::Box,
     fs_panel: gtk::Box,
@@ -590,6 +592,7 @@ fn apply_settings(ui: &Ui) {
     apply_audio(ui);
     apply_sub_style(ui);
     apply_video(ui);
+    let _ = ui.mpv.set_property("dvbin-file", dvb::channels_file().to_string_lossy().as_ref());
     let _ = ui.mpv.set_property("audio-delay", cfg.audio_time_shift_ms as f64 / 1000.0);
     ui.marks.set((-1, -1)); // rebuild (or drop) the chapter marks
     sync_repeat(ui);
@@ -701,7 +704,8 @@ fn save_position(ui: &Ui) {
     let Some(path) = ui.loaded.borrow().clone() else { return };
     let disc = dialogs::is_disc_url(&path);
     let on = if disc { ui.cfg.borrow().remember_dvd_pos } else { ui.cfg.borrow().remember_file_pos };
-    if !on || path.starts_with("av://") || prop::<bool>(ui.mpv, "eof-reached").unwrap_or(false) {
+    // Live sources (capture devices, TV) have no position to come back to.
+    if !on || path.starts_with("av://") || dvb::is_dvb(&path) || prop::<bool>(ui.mpv, "eof-reached").unwrap_or(false) {
         return;
     }
     if let Some(pos) = prop::<f64>(ui.mpv, "time-pos").filter(|p| *p > 0.0) {
@@ -779,6 +783,30 @@ fn update_nav_menus(ui: &Ui) {
             menu.append_item(&item);
         }
     }
+}
+
+/// The Navigation bar's channel list, from channels.conf.
+fn refresh_channels(ui: &Rc<Ui>) {
+    ui.channel_list.remove_all();
+    let channels = dvb::channels();
+    if channels.is_empty() {
+        ui.channel_list.append(&gtk::Label::builder().label(tr("No channels yet: use Scan... (Navigate > Tuner Scan).")).xalign(0.0).margin_start(6).css_classes(["dim-label"]).build());
+    }
+    for name in channels {
+        ui.channel_list.append(&gtk::Label::builder().label(name.as_str()).xalign(0.0).margin_start(6).build());
+    }
+}
+
+/// Watch a DVB channel (replaces the playlist, like opening a file).
+fn open_channel(ui: &Ui, name: &str) {
+    let first = {
+        let mut pl = ui.pl.borrow_mut();
+        pl.clear();
+        pl.add(vec![Entry::new(dvb::channel_url(name))])
+    };
+    playlist_changed(ui);
+    play(ui, first);
+    osd(ui.mpv, &format!("{}: {name}", tr("Channel")));
 }
 
 /// File > Open Disc: the discs and drives currently present.
@@ -1120,6 +1148,15 @@ fn skip_file(ui: &Ui, dir: i64) {
         let pl = ui.pl.borrow();
         (pl.items.len(), pl.current.and_then(|c| pl.items.get(c)).map(|e| e.path.clone()))
     };
+    // Watching TV: previous/next channel (MPC does the same for DVB).
+    if let Some(cur) = path.as_deref().and_then(|p| p.strip_prefix("dvb://")) {
+        let channels = dvb::channels();
+        if let Some(i) = channels.iter().position(|c| c == cur) {
+            let next = (i as i64 + dir).rem_euclid(channels.len() as i64) as usize;
+            open_channel(ui, &channels[next]);
+        }
+        return;
+    }
     if len <= 1 {
         if !ui.cfg.borrow().search_in_folder {
             return;
@@ -1311,8 +1348,17 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             osd(mpv, &format!("Recording to {path}"));
         }
     });
+    // Navigation bar (MPC's PlayerNavigationBar): DVB channels, double-click to watch.
+    let navigation = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let nav_head = gtk::Box::builder().spacing(8).margin_start(6).margin_end(6).margin_top(2).build();
+    nav_head.append(&gtk::Label::builder().label(tr("Channels")).xalign(0.0).hexpand(true).css_classes(["heading"]).build());
+    let scan_button = gtk::Button::builder().label(tr("Scan...")).focusable(false).action_name("win.navigate-tunerscan").build();
+    nav_head.append(&scan_button);
+    let channel_list = gtk::ListBox::new();
+    navigation.append(&nav_head);
+    navigation.append(&gtk::ScrolledWindow::builder().min_content_height(140).max_content_height(140).child(&channel_list).build());
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
+    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), navigation.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
@@ -1407,6 +1453,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             ("view-playlist", plbar.widget.clone().upcast()),
             ("view-subresync", resync.widget.clone().upcast()),
             ("view-capture", capture.clone().upcast()),
+            ("view-navigation", navigation.clone().upcast()),
         ],
         seek: seek.clone(),
         volume: volume.clone(),
@@ -1447,6 +1494,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         nav_sig: RefCell::new(String::new()),
         capture_label,
         record,
+        channel_list: channel_list.clone(),
         vbox: vbox.clone(),
         fs_panel: fs_panel.clone(),
         fs_revealer: fs_revealer.clone(),
@@ -1465,6 +1513,16 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     }
     refresh_discs(&ui);
     refresh_favorites(&ui);
+    refresh_channels(&ui);
+    ui.channel_list.connect_row_activated({
+        let ui = ui.clone();
+        move |_, row| {
+            let name = row.child().and_downcast::<gtk::Label>().map(|l| l.label().to_string());
+            if let Some(n) = name.filter(|_| !dvb::channels().is_empty()) {
+                open_channel(&ui, &n);
+            }
+        }
+    });
     ui.capture_label.set_label("No capture device is open (File > Open Device).");
     // Keep File > Open Disc current as discs come and go.
     let monitor = gio::VolumeMonitor::get();
@@ -1738,7 +1796,7 @@ fn relayout(ui: &Ui) {
             // In the fullscreen panel, which slides in and out by itself.
             "view-seeker" | "view-controls" | "view-status" => true,
             "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
-            "view-subresync" | "view-capture" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
+            "view-subresync" | "view-capture" | "view-navigation" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
             _ => false,
         };
         w.set_visible(on && (!fs || fs_ok));
@@ -1993,6 +2051,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     let mut bars: Vec<(&str, &str)> = bars.iter().map(|(l, a)| (l.as_str(), a.as_str())).collect();
     bars.push(("Su_bresync", "win.view-subresync"));
     bars.push(("Captu_re", "win.view-capture"));
+    bars.push(("Na_vigation", "win.view-navigation"));
     bars.push(("_Playlist", "win.view-playlist"));
     view.append_section(None, &section(&bars));
     let presets = section(&[
@@ -2121,6 +2180,7 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     root.append_submenu(Some(tr("_Play").as_str()), &play);
 
     let navigate = section(&[("_Previous", "win.navigate-skipback"), ("_Next", "win.navigate-skipforward"), ("_Go To...", "win.navigate-goto")]);
+    navigate.append_section(None, &section(&[("Tuner _Scan...", "win.navigate-tunerscan")]));
     navigate.append_section(None, &{
         let m = gio::Menu::new();
         m.append_submenu(Some(tr("_Chapters").as_str()), &nav.chapters);
@@ -2711,6 +2771,29 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         }
     });
     win.add_action(&show_capture);
+
+    // DVB: tuner scan and the Navigation bar.
+    add("navigate-tunerscan", Box::new({
+        let ui = ui.clone();
+        move || {
+            let ui2 = ui.clone();
+            dvb::scan_dialog(ui.win.upcast_ref(), move || {
+                refresh_channels(&ui2);
+                ui2.win.change_action_state("view-navigation", &true.to_variant());
+            });
+        }
+    }));
+    let show_nav = gio::SimpleAction::new_stateful("view-navigation", None, &false.to_variant());
+    show_nav.connect_change_state({
+        let ui = ui.clone();
+        move |a, v| {
+            if let Some(v) = v {
+                a.set_state(v);
+                relayout(&ui);
+            }
+        }
+    });
+    win.add_action(&show_nav);
 
     // Navigate
     add("navigate-goto", Box::new({
