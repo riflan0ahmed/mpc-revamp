@@ -43,6 +43,9 @@ pub fn show(parent: &gtk::ApplicationWindow, cfg: Config, implemented: Vec<bool>
         ("Logo", true, logo_page(&work)),
         ("Playback", false, playback_page(&work)),
         ("Fullscreen", true, fullscreen_page(&work)),
+        ("Audio", true, audio_page(&work)),
+        ("Subtitles", false, subtitles_page(&work)),
+        ("Default Style", true, sub_style_page(&work)),
         ("Tweaks", false, tweaks_page(&work)),
         ("Miscellaneous", false, misc_page(&work, &dlg, on_apply.clone())),
     ];
@@ -231,12 +234,14 @@ fn playback_page(w: &Work) -> gtk::Widget {
     let audio = entry(w, "e.g. jpn,eng", |c| c.audio_langs.clone(), |c, v| c.audio_langs = v);
     let auto_audio = check(w, "Auto-load audio files", |c| c.autoload_audio, |c, v| c.autoload_audio = v);
     let auto_subs = check(w, "Auto-load subtitles", |c| c.autoload_subtitles, |c, v| c.autoload_subtitles = v);
+    let speed = spin(w, 0.0, 100.0, 5.0, |c| c.speed_step as i64, |c, v| c.speed_step = v as u32);
+    let pitch = check(w, "Keep the pitch when changing the rate", |c| c.pitch_correction, |c, v| c.pitch_correction = v);
     page(&[
         group("Audio", &[&row("Volume:", &volume, "%")]).upcast_ref(),
         group("Playback", &[&row("Play", &loops, "time(s)"), forever.upcast_ref(), &row("Repeat mode:", &mode, ""), &row("After Playback:", &after, "")]).upcast_ref(),
         group("Default track preference", &[&row("Subtitles:", &subs, ""), &row("Audio:", &audio, "")]).upcast_ref(),
         group("Open settings", &[auto_audio.upcast_ref(), auto_subs.upcast_ref()]).upcast_ref(),
-        group("Control", &[&row("Volume step:", &step, "%")]).upcast_ref(),
+        group("Control", &[&row("Volume step:", &step, "%"), &row("Speed step:", &speed, "% (0 = double/halve)"), pitch.upcast_ref()]).upcast_ref(),
     ])
 }
 
@@ -276,6 +281,78 @@ fn tweaks_page(w: &Work) -> gtk::Widget {
     page(&[
         group("Jump distances (small, medium, large in ms)", &[jumps.upcast_ref(), fast.upcast_ref()]).upcast_ref(),
         group("Tweaks", &[marks.upcast_ref(), folder.upcast_ref(), tooltip.upcast_ref(), pointer.upcast_ref()]).upcast_ref(),
+    ])
+}
+
+/// A color button for a "#RRGGBBAA" setting.
+fn color(work: &Work, get: fn(&Config) -> String, set: fn(&mut Config, String)) -> gtk::ColorDialogButton {
+    let b = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::builder().with_alpha(true).build()));
+    if let Ok(rgba) = gdk::RGBA::parse(get(&work.borrow()).as_str()) {
+        b.set_rgba(&rgba);
+    }
+    let work = work.clone();
+    b.connect_rgba_notify(move |b| {
+        let c = b.rgba();
+        let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        set(&mut work.borrow_mut(), format!("#{:02x}{:02x}{:02x}{:02x}", byte(c.red()), byte(c.green()), byte(c.blue()), byte(c.alpha())));
+    });
+    b
+}
+
+/// MPC's audio switcher page, done with mpv's audio filters.
+fn audio_page(w: &Work) -> gtk::Widget {
+    let normalize = check(w, "Normalize", |c| c.audio_normalize, |c, v| c.audio_normalize = v);
+    let max = spin(w, 100.0, 10000.0, 50.0, |c| c.audio_max_norm_factor as i64, |c, v| c.audio_max_norm_factor = v as u32);
+    let boost = spin(w, 0.0, 300.0, 5.0, |c| c.audio_boost as i64, |c, v| c.audio_boost = v as u32);
+    let shift = spin(w, -10000.0, 10000.0, 10.0, |c| c.audio_time_shift_ms as i64, |c, v| c.audio_time_shift_ms = v as i32);
+    let downsample = check(w, "Down-sample to 44100 Hz", |c| c.downsample_44100, |c, v| c.downsample_44100 = v);
+    let downmix = check(w, "Downmix to stereo", |c| c.downmix_stereo, |c, v| c.downmix_stereo = v);
+    let crossfeed = check(w, "Headphone crossfeed (bs2b)", |c| c.crossfeed, |c, v| c.crossfeed = v);
+    page(&[
+        group("Volume", &[normalize.upcast_ref(), &row("Max amplification:", &max, "%"), &row("Boost:", &boost, "%")]).upcast_ref(),
+        group("Output", &[downsample.upcast_ref(), downmix.upcast_ref(), crossfeed.upcast_ref(), &row("Audio time shift:", &shift, "ms")]).upcast_ref(),
+    ])
+}
+
+fn subtitles_page(w: &Work) -> gtk::Widget {
+    let place = check(w, "Override placement", |c| c.sub_override_placement, |c, v| c.sub_override_placement = v);
+    let vert = spin(w, 0.0, 150.0, 1.0, |c| c.sub_pos_v as i64, |c, v| c.sub_pos_v = v as u32);
+    let delay = spin(w, 1.0, 10000.0, 50.0, |c| c.sub_delay_step_ms as i64, |c, v| c.sub_delay_step_ms = v as u32);
+    page(&[
+        group("Placement", &[place.upcast_ref(), &row("Vertical:", &vert, "% (100 = bottom)")]).upcast_ref(),
+        group("Delay step", &[&row("Delay step:", &delay, "ms")]).upcast_ref(),
+    ])
+}
+
+fn sub_style_page(w: &Work) -> gtk::Widget {
+    let font = gtk::FontDialogButton::new(Some(gtk::FontDialog::new()));
+    font.set_level(gtk::FontLevel::Family);
+    font.set_font_desc(&gtk::pango::FontDescription::from_string(&w.borrow().sub_font));
+    font.connect_font_desc_notify({
+        let work = w.clone();
+        move |b| {
+            if let Some(family) = b.font_desc().and_then(|d| d.family()) {
+                work.borrow_mut().sub_font = family.to_string();
+            }
+        }
+    });
+    let size = spin(w, 8.0, 200.0, 1.0, |c| c.sub_font_size as i64, |c, v| c.sub_font_size = v as u32);
+    let bold = check(w, "Bold", |c| c.sub_bold, |c, v| c.sub_bold = v);
+    let italic = check(w, "Italic", |c| c.sub_italic, |c, v| c.sub_italic = v);
+    let text = color(w, |c| c.sub_color.clone(), |c, v| c.sub_color = v);
+    let outline = color(w, |c| c.sub_border_color.clone(), |c, v| c.sub_border_color = v);
+    let shadow = color(w, |c| c.sub_shadow_color.clone(), |c, v| c.sub_shadow_color = v);
+    let back = color(w, |c| c.sub_back_color.clone(), |c, v| c.sub_back_color = v);
+    let outline_w = spin(w, 0.0, 20.0, 1.0, |c| c.sub_border_size as i64, |c, v| c.sub_border_size = v as f64);
+    let shadow_d = spin(w, 0.0, 20.0, 1.0, |c| c.sub_shadow_offset as i64, |c, v| c.sub_shadow_offset = v as f64);
+    let opaque = check(w, "Opaque box instead of outline", |c| c.sub_opaque_box, |c, v| c.sub_opaque_box = v);
+    let margin = spin(w, 0.0, 300.0, 1.0, |c| c.sub_margin_y as i64, |c, v| c.sub_margin_y = v as u32);
+    let ass = check(w, "Also apply to styled (ASS/SSA) subtitles", |c| c.sub_override_ass, |c, v| c.sub_override_ass = v);
+    page(&[
+        group("Font", &[&row("Font:", &font, ""), &row("Size:", &size, "(on a 720-line screen)"), bold.upcast_ref(), italic.upcast_ref()]).upcast_ref(),
+        group("Border style", &[&row("Outline width:", &outline_w, ""), &row("Shadow depth:", &shadow_d, ""), opaque.upcast_ref()]).upcast_ref(),
+        group("Colors and transparency", &[&row("Text:", &text, ""), &row("Outline:", &outline, ""), &row("Shadow:", &shadow, ""), &row("Box:", &back, "")]).upcast_ref(),
+        group("Position", &[&row("Bottom margin:", &margin, ""), ass.upcast_ref()]).upcast_ref(),
     ])
 }
 

@@ -9,6 +9,7 @@ use crate::{
     options,
     playlist::{self, Entry, Playlist},
     playlistbar::{self, Bar, Request},
+    subresync::{self, Subresync},
     video,
 };
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
@@ -73,6 +74,147 @@ struct Ui {
     after_override: Cell<Option<AfterPlayback>>,
     /// Fullscreen: when the pointer was last near the bottom edge (controls stay up for the hide delay).
     fs_zone_at: Cell<Option<Instant>>,
+    subresync: Rc<Subresync>,
+    /// Play > Audio / Subtitle / Video Track, rebuilt when the track list changes.
+    track_menus: [gio::Menu; 3],
+    tracks_sig: RefCell<String>,
+}
+
+const TRACK_KINDS: [(&str, &str, &str); 3] = [("audio", "aid", "audio-track"), ("sub", "sid", "sub-track"), ("video", "vid", "video-track")];
+
+/// mpv's OSD line, as MPC shows rate and delay changes on its OSD.
+fn osd(mpv: &Mpv, text: &str) {
+    cmd(mpv, "show-text", &[text, "1500"]);
+}
+
+/// Hex "#RRGGBBAA" (our config, like CSS) to mpv's "#AARRGGBB".
+fn mpv_color(c: &str) -> String {
+    let h = c.trim_start_matches('#');
+    if h.len() == 8 { format!("#{}{}", &h[6..], &h[..6]) } else { format!("#{h}") }
+}
+
+/// The audio filter chain and output options from Options > Audio.
+fn apply_audio(ui: &Ui) {
+    let cfg = ui.cfg.borrow();
+    let mut af = Vec::new();
+    if cfg.audio_normalize {
+        af.push(format!("lavfi=[dynaudnorm=m={:.2}]", (cfg.audio_max_norm_factor as f64 / 100.0).clamp(1.0, 100.0)));
+    }
+    if cfg.crossfeed {
+        af.push("lavfi=[bs2b]".to_string());
+    }
+    let gain = 20.0 * (1.0 + cfg.audio_boost as f64 / 100.0).log10();
+    for (name, value) in [
+        ("af", af.join(",")),
+        ("volume-gain", format!("{gain:.2}")),
+        ("audio-channels", if cfg.downmix_stereo { "stereo" } else { "auto-safe" }.into()),
+        ("audio-samplerate", if cfg.downsample_44100 { "44100" } else { "0" }.into()),
+        ("audio-pitch-correction", if cfg.pitch_correction { "yes" } else { "no" }.into()),
+    ] {
+        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
+            eprintln!("mpv {name}={value}: {e}");
+        }
+    }
+}
+
+/// Options > Subtitles and Subtitle style, as mpv options.
+fn apply_sub_style(ui: &Ui) {
+    let c = ui.cfg.borrow();
+    let yes = |b: bool| if b { "yes" } else { "no" }.to_string();
+    for (name, value) in [
+        ("sub-font", c.sub_font.clone()),
+        ("sub-font-size", c.sub_font_size.to_string()),
+        ("sub-bold", yes(c.sub_bold)),
+        ("sub-italic", yes(c.sub_italic)),
+        ("sub-color", mpv_color(&c.sub_color)),
+        ("sub-outline-color", mpv_color(&c.sub_border_color)),
+        ("sub-outline-size", c.sub_border_size.to_string()),
+        ("sub-shadow-offset", c.sub_shadow_offset.to_string()),
+        ("sub-shadow-color", mpv_color(&c.sub_shadow_color)),
+        ("sub-border-style", if c.sub_opaque_box { "opaque-box" } else { "outline-and-shadow" }.into()),
+        ("sub-back-color", mpv_color(&c.sub_back_color)),
+        ("sub-margin-y", c.sub_margin_y.to_string()),
+        ("sub-ass-override", if c.sub_override_ass { "force" } else { "scale" }.into()),
+        ("sub-pos", if c.sub_override_placement { c.sub_pos_v.min(150) } else { 100 }.to_string()),
+    ] {
+        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
+            eprintln!("mpv {name}={value}: {e}");
+        }
+    }
+}
+
+/// MPC's next/previous audio or subtitle stream: steps through the tracks of that type, wrapping around
+/// (unlike mpv's `cycle`, never to "no track"; subtitles are turned off with On/Off instead).
+fn cycle_track(mpv: &Mpv, kind: &str, property: &str, dir: i64) {
+    let n = prop::<i64>(mpv, "track-list/count").unwrap_or(0);
+    let ids: Vec<i64> = (0..n)
+        .filter(|i| prop::<String>(mpv, &format!("track-list/{i}/type")).as_deref() == Some(kind))
+        .filter_map(|i| prop::<i64>(mpv, &format!("track-list/{i}/id")))
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let cur = prop::<String>(mpv, property).and_then(|s| s.parse::<i64>().ok());
+    let pos = cur.and_then(|c| ids.iter().position(|&i| i == c)).map_or(0, |p| (p as i64 + dir).rem_euclid(ids.len() as i64) as usize);
+    let _ = mpv.set_property(property, ids[pos]);
+    if let Some(title) = prop::<String>(mpv, &format!("current-tracks/{kind}/title")).or_else(|| prop::<String>(mpv, &format!("current-tracks/{kind}/lang"))) {
+        osd(mpv, &format!("{}: {title}", if kind == "audio" { "Audio" } else { "Subtitle" }));
+    }
+}
+
+/// Rebuild the track submenus when mpv's track list changes, and keep their radio marks current.
+fn update_tracks(ui: &Ui) {
+    let n = prop::<i64>(ui.mpv, "track-list/count").unwrap_or(0);
+    let mut tracks: Vec<(String, i64, String)> = Vec::new(); // (type, id, label)
+    for i in 0..n {
+        let get = |k: &str| prop::<String>(ui.mpv, &format!("track-list/{i}/{k}"));
+        let (Some(kind), Some(id)) = (get("type"), prop::<i64>(ui.mpv, &format!("track-list/{i}/id"))) else { continue };
+        let mut label = get("title").unwrap_or_else(|| format!("Track {id}"));
+        if let Some(lang) = get("lang") {
+            label += &format!(" [{lang}]");
+        }
+        if let Some(codec) = get("codec") {
+            label += &format!(" ({codec})");
+        }
+        if prop::<bool>(ui.mpv, &format!("track-list/{i}/external")).unwrap_or(false) {
+            label += " (external)";
+        }
+        tracks.push((kind, id, label));
+    }
+    let sig = format!("{tracks:?}");
+    if *ui.tracks_sig.borrow() != sig {
+        for ((kind, _, action), menu) in TRACK_KINDS.iter().zip(&ui.track_menus) {
+            menu.remove_all();
+            let list = gio::Menu::new();
+            for (_, id, label) in tracks.iter().filter(|t| t.0 == *kind) {
+                let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
+                item.set_action_and_target_value(Some(&format!("win.{action}")), Some(&id.to_string().to_variant()));
+                list.append_item(&item);
+            }
+            menu.append_section(None, &list);
+            if *kind == "sub" {
+                let extra = gio::Menu::new();
+                extra.append(Some("_Enabled"), Some("win.stream-sub-onoff"));
+                extra.append(Some("_Reload"), Some("win.subtitles-subitem-2"));
+                menu.append_section(None, &extra);
+            }
+        }
+        *ui.tracks_sig.borrow_mut() = sig;
+    }
+    for (_, property, action) in TRACK_KINDS {
+        let current = prop::<String>(ui.mpv, property).unwrap_or_default();
+        if let Some(a) = ui.win.lookup_action(action).and_downcast::<gio::SimpleAction>()
+            && a.state().and_then(|v| v.get::<String>()).as_deref() != Some(current.as_str())
+        {
+            a.set_state(&current.to_variant());
+        }
+    }
+    let visible = prop::<bool>(ui.mpv, "sub-visibility").unwrap_or(true);
+    if let Some(a) = ui.win.lookup_action("stream-sub-onoff").and_downcast::<gio::SimpleAction>()
+        && a.state().and_then(|v| v.get::<bool>()) != Some(visible)
+    {
+        a.set_state(&visible.to_variant());
+    }
 }
 
 thread_local! {
@@ -150,6 +292,9 @@ fn apply_settings(ui: &Ui) {
         None => ui.logo.set_paintable(Some(&gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../res/logo.png"))).unwrap())),
     }
     ui.pl.borrow_mut().shuffle = cfg.shuffle;
+    apply_audio(ui);
+    apply_sub_style(ui);
+    let _ = ui.mpv.set_property("audio-delay", cfg.audio_time_shift_ms as f64 / 1000.0);
     ui.marks.set((-1, -1)); // rebuild (or drop) the chapter marks
     sync_repeat(ui);
     if !cfg.keep_history && !ui.history.borrow().recent.is_empty() {
@@ -487,7 +632,8 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
 
     // --- widgets ---
     let recent = gio::Menu::new();
-    let model = menu_model(&recent);
+    let track_menus = [gio::Menu::new(), gio::Menu::new(), gio::Menu::new()];
+    let model = menu_model(&recent, &track_menus);
     let menubar = gtk::PopoverMenuBar::from_model(Some(&model));
 
     let video = video::new(mpv);
@@ -575,8 +721,9 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     paned.set_resize_end_child(false);
     paned.set_shrink_end_child(false);
 
+    let resync = subresync::new(mpv);
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
+    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
@@ -617,6 +764,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
             ("view-controls", controls.upcast()),
             ("view-status", status.upcast()),
             ("view-playlist", plbar.widget.clone().upcast()),
+            ("view-subresync", resync.widget.clone().upcast()),
         ],
         seek: seek.clone(),
         volume: volume.clone(),
@@ -643,6 +791,9 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         start_paused: Cell::new(false),
         after_override: Cell::new(None),
         fs_zone_at: Cell::new(None),
+        subresync: resync,
+        track_menus,
+        tracks_sig: RefCell::new(String::new()),
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
@@ -653,6 +804,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         let ui = ui.clone();
         move |win| {
             save_position(&ui);
+            ui.subresync.cleanup();
             // MPC keeps the last volume (and, if asked, the window size) for the next start.
             let mut cfg = ui.cfg.borrow_mut();
             cfg.volume = prop::<f64>(ui.mpv, "volume").map_or(cfg.volume, |v| v.round() as u32);
@@ -830,6 +982,7 @@ fn relayout(ui: &Ui) {
         let fs_ok = match *name {
             "view-seeker" | "view-controls" => ui.fs_reveal.get(),
             "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
+            "view-subresync" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
             _ => false,
         };
         w.set_visible(on && (!fs || fs_ok));
@@ -853,6 +1006,8 @@ fn update(ui: &Ui) {
             _ => {}
         }
     }
+    update_tracks(ui);
+    ui.subresync.tick();
     // keep-open pauses on the last frame instead of ending the file; that's the "end of file" moment.
     if prop::<bool>(mpv, "eof-reached").unwrap_or(false) {
         if !ui.eof_handled.replace(true) {
@@ -962,7 +1117,7 @@ fn window_title(ui: &Ui, idle: bool) -> String {
 }
 
 /// The menus, shared by the menu bar and the context menu. `recent` is filled by `refresh_recent`.
-fn menu_model(recent: &gio::Menu) -> gio::Menu {
+fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3]) -> gio::Menu {
     fn section(items: &[(&str, &str)]) -> gio::Menu {
         let m = gio::Menu::new();
         for (label, action) in items {
@@ -983,6 +1138,7 @@ fn menu_model(recent: &gio::Menu) -> gio::Menu {
         m.append_submenu(Some("Recent _Files"), recent);
         m
     });
+    file.append_section(None, &section(&[("_Load Subtitle...", "win.file-subtitles-load"), ("_Save Subtitle...", "win.file-subtitles-save")]));
     file.append_section(None, &section(&[("_Close", "win.file-close-and-restore")]));
     file.append_section(None, &section(&[("E_xit", "win.file-exit")]));
     root.append_submenu(Some("_File"), &file);
@@ -990,6 +1146,7 @@ fn menu_model(recent: &gio::Menu) -> gio::Menu {
     let view = gio::Menu::new();
     let bars: Vec<(String, String)> = BARS.iter().map(|(a, l, _)| (l.replace("&&", "&"), format!("win.{a}"))).collect();
     let mut bars: Vec<(&str, &str)> = bars.iter().map(|(l, a)| (l.as_str(), a.as_str())).collect();
+    bars.push(("Su_bresync", "win.view-subresync"));
     bars.push(("_Playlist", "win.view-playlist"));
     view.append_section(None, &section(&bars));
     let presets = section(&[
@@ -1019,6 +1176,18 @@ fn menu_model(recent: &gio::Menu) -> gio::Menu {
         repeat.append_section(None, &section(&[("F_orever", "win.play-repeat-forever")]));
         repeat.append_section(None, &section(&[("_File", "win.play-repeat-onefile"), ("_Playlist", "win.play-repeat-wholeplaylist")]));
         m.append_submenu(Some("_Repeat"), &repeat);
+        m
+    });
+    play.append_section(None, &section(&[
+        ("_Decrease Rate", "win.play-decrate"),
+        ("_Increase Rate", "win.play-incrate"),
+        ("R_eset Rate", "win.play-resetrate"),
+    ]));
+    play.append_section(None, &{
+        let m = gio::Menu::new();
+        m.append_submenu(Some("_Audio Track"), &tracks[0]);
+        m.append_submenu(Some("Su_btitle Track"), &tracks[1]);
+        m.append_submenu(Some("Vide_o Track"), &tracks[2]);
         m
     });
     play.append_section(None, &{
@@ -1252,6 +1421,108 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         }));
     }
 
+    // Tracks: menu items carry the track id; "a"/"s" cycle like MPC's next/previous stream.
+    for (_, property, action) in TRACK_KINDS {
+        let a = gio::SimpleAction::new_stateful(action, Some(glib::VariantTy::STRING), &"".to_variant());
+        a.connect_activate(move |_, v| {
+            if let Some(id) = v.and_then(|v| v.get::<String>()) {
+                let _ = mpv.set_property(property, id.as_str());
+            }
+        });
+        win.add_action(&a);
+    }
+    add("stream-audio-next", Box::new(move || cycle_track(mpv, "audio", "aid", 1)));
+    add("stream-audio-prev", Box::new(move || cycle_track(mpv, "audio", "aid", -1)));
+    add("stream-sub-next", Box::new(move || cycle_track(mpv, "sub", "sid", 1)));
+    add("stream-sub-prev", Box::new(move || cycle_track(mpv, "sub", "sid", -1)));
+    let sub_onoff = gio::SimpleAction::new_stateful("stream-sub-onoff", None, &true.to_variant());
+    sub_onoff.connect_activate(move |_, _| cmd(mpv, "cycle", &["sub-visibility"]));
+    win.add_action(&sub_onoff);
+    add("subtitles-subitem-2", Box::new(move || cmd(mpv, "sub-reload", &[])));
+
+    // Rate (MPC: speed step 0 doubles/halves), audio delay +-10 ms.
+    let rate = |name: &str, dir: i32| {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            let cur = prop::<f64>(mpv, "speed").unwrap_or(1.0);
+            let step = ui.cfg.borrow().speed_step as f64 / 100.0;
+            let new = match dir {
+                0 => 1.0,
+                d if step > 0.0 => cur + d as f64 * step,
+                1 => cur * 2.0,
+                _ => cur / 2.0,
+            };
+            let new = (new * 1000.0).round() / 1000.0;
+            let _ = mpv.set_property("speed", new.clamp(0.125, 16.0));
+            osd(mpv, &format!("Rate: {:.2}x", new.clamp(0.125, 16.0)));
+        }))
+    };
+    rate("play-incrate", 1);
+    rate("play-decrate", -1);
+    rate("play-resetrate", 0);
+    for (name, ms) in [("play-incauddelay", 10), ("play-decauddelay", -10)] {
+        add(name, Box::new(move || {
+            cmd(mpv, "add", &["audio-delay", &format!("{}", ms as f64 / 1000.0)]);
+            osd(mpv, &format!("Audio delay: {:.0} ms", prop::<f64>(mpv, "audio-delay").unwrap_or(0.0) * 1000.0));
+        }));
+    }
+
+    // Audio: boost (0..300 %, by the volume step), normalize and downmix toggles; saved like MPC does.
+    let audio = |name: &str, f: fn(&mut Config)| {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            f(&mut ui.cfg.borrow_mut());
+            save_config(&ui);
+            apply_audio(&ui);
+            let c = ui.cfg.borrow();
+            osd(mpv, &format!("Boost: {}%  Normalize: {}  Downmix: {}", c.audio_boost,
+                if c.audio_normalize { "on" } else { "off" }, if c.downmix_stereo { "on" } else { "off" }));
+        }))
+    };
+    audio("volume-boost-inc", |c| c.audio_boost = (c.audio_boost + c.volume_step).min(300));
+    audio("volume-boost-dec", |c| c.audio_boost = c.audio_boost.saturating_sub(c.volume_step));
+    audio("volume-boost-min", |c| c.audio_boost = 0);
+    audio("volume-boost-max", |c| c.audio_boost = 300);
+    audio("normalize", |c| c.audio_normalize = !c.audio_normalize);
+    audio("custom-channel-mapping", |c| c.downmix_stereo = !c.downmix_stereo);
+
+    // Subtitles
+    add("file-subtitles-load", Box::new({
+        let ui = ui.clone();
+        move || load_subtitle_dialog(&ui)
+    }));
+    add("file-subtitles-save", Box::new({
+        let ui = ui.clone();
+        move || save_subtitle_dialog(&ui)
+    }));
+    for (name, dir) in [("sub-delay-down", -1.0), ("sub-delay-up", 1.0)] {
+        let ui = ui.clone();
+        add(name, Box::new(move || {
+            let step = ui.cfg.borrow().sub_delay_step_ms as f64 / 1000.0;
+            cmd(mpv, "add", &["sub-delay", &(dir * step).to_string()]);
+            osd(mpv, &format!("Subtitle delay: {:.0} ms", prop::<f64>(mpv, "sub-delay").unwrap_or(0.0) * 1000.0));
+        }));
+    }
+    add("goto-prev-sub", Box::new(move || cmd(mpv, "sub-seek", &["-1"])));
+    add("goto-next-sub", Box::new(move || cmd(mpv, "sub-seek", &["1"])));
+    for (name, delta) in [("shift-sub-down", -0.1), ("shift-sub-up", 0.1)] {
+        let ui = ui.clone();
+        add(name, Box::new(move || ui.subresync.shift_current(delta)));
+    }
+    let show_resync = gio::SimpleAction::new_stateful("view-subresync", None, &ui.cfg.borrow().show_subresync.to_variant());
+    show_resync.connect_change_state({
+        let ui = ui.clone();
+        move |a, v| {
+            if let Some(v) = v {
+                a.set_state(v);
+                ui.cfg.borrow_mut().show_subresync = v.get().unwrap_or(false);
+                save_config(&ui);
+                relayout(&ui);
+            }
+        }
+    });
+    win.add_action(&show_resync);
+
     // Help
     add("about", Box::new({
         let win = win.clone();
@@ -1267,6 +1538,42 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
                 .present();
         }
     }));
+}
+
+/// File > Load Subtitle: add it to the playing file (and remember it with the playlist item).
+fn load_subtitle_dialog(ui: &Rc<Ui>) {
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("Subtitle files"));
+    for e in SUB_EXTS {
+        filter.add_suffix(e);
+    }
+    let filters = gio::ListStore::new::<gtk::FileFilter>();
+    filters.append(&filter);
+    let ui2 = ui.clone();
+    gtk::FileDialog::builder().title("Load Subtitle").filters(&filters).build().open(Some(&ui.win), gio::Cancellable::NONE, move |res| {
+        let Some(path) = res.ok().and_then(|f| f.path()) else { return };
+        open_targets(&ui2, &[path.to_string_lossy().into_owned()], true);
+    });
+}
+
+/// File > Save Subtitle: the current external text subtitle with its delay and resync applied.
+fn save_subtitle_dialog(ui: &Rc<Ui>) {
+    let delay = prop::<f64>(ui.mpv, "sub-delay").unwrap_or(0.0);
+    let Some((text, _, source)) = ui.subresync.text(delay) else {
+        gtk::AlertDialog::builder()
+            .message("Nothing to save")
+            .detail("Only external SRT, WebVTT and ASS/SSA subtitles can be saved.")
+            .build()
+            .show(Some(&ui.win));
+        return;
+    };
+    let name = Path::new(&source).file_name().map_or("subtitle.srt".into(), |n| n.to_string_lossy().into_owned());
+    gtk::FileDialog::builder().title("Save Subtitle").initial_name(name.as_str()).build().save(Some(&ui.win), gio::Cancellable::NONE, move |res| {
+        let Some(path) = res.ok().and_then(|f| f.path()) else { return };
+        if let Err(e) = std::fs::write(&path, &text) {
+            eprintln!("{}: {e}", path.display());
+        }
+    });
 }
 
 /// MPC's "Open" dialog: a file name or URL, a Browse button and "Add to playlist".

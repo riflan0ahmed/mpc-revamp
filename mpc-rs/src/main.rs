@@ -5,6 +5,8 @@ mod mpris;
 mod options;
 mod playlist;
 mod playlistbar;
+mod subresync;
+mod subtitles;
 mod ui;
 mod video;
 
@@ -53,6 +55,8 @@ fn main() -> glib::ExitCode {
             // MPC "after playback: do nothing" = stay on the last frame.
             init.set_property("keep-open", "yes")?;
             init.set_property("volume-max", "100")?;
+            // Room for MPC's volume boost (up to +300% = +12.04 dB).
+            init.set_property("volume-gain-max", "13")?;
             // Auto-loaded subtitles are also looked for in these subfolders (MPC's default paths).
             init.set_property("sub-file-paths", "subtitles:subs")?;
             init.set_property("terminal", "yes")?;

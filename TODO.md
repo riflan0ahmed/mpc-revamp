@@ -60,13 +60,19 @@ Each phase ends with a build that runs, then stops for review.
 - Not possible on Wayland: remember window position, fullscreen monitor and display mode switching
 
 ## Phase 6 — Tracks, audio, subtitles
-- [ ] Audio, video and subtitle track menus; preferred languages
-- [ ] Volume boost, normalize, downmix, bs2b, audio delay (mpv `af`)
-- [ ] Speed: increase / decrease / reset, with pitch correction
-- [ ] Load and save subtitles; subtitle delay; show/hide subtitles
-- [ ] Subtitle style overrides (font, colors, outline, position)
-- [ ] Subresync bar (edit subtitle timings)
-- [ ] Online subtitle download/upload (OpenSubtitles REST API)
+- [x] Audio, video and subtitle track menus (Play > Audio/Subtitle/Video Track); next/previous track
+      (`a`/`s`), subtitles on/off (`w`), reload; preferred languages (phase 5)
+- [x] Volume boost, normalize, downmix, bs2b crossfeed, down-sample to 44100 Hz, audio delay and time
+      shift (mpv `volume-gain`, `af`); Options > Audio
+- [x] Speed: increase / decrease / reset (MPC's speed step, 0 = double/halve), with pitch correction
+- [x] Load and save subtitles (save: external SRT/WebVTT/ASS, with delay and resync applied); subtitle
+      delay (F1/F2); previous/next subtitle line (`y`/`u`); show/hide subtitles
+- [x] Subtitle style overrides (font, size, bold/italic, colors and transparency, outline, shadow,
+      opaque box, margin, vertical position; optionally forced on ASS); Options > Subtitles, Default Style
+- [x] Subresync bar (View > Subresync, Ctrl+6): line list, set start / set to current time, MPC's
+      anchors (stretch between, shift outside), shift current line (Alt+PgUp/PgDn). External text
+      subtitles only: mpv can't hand back embedded subtitle lines
+- Moved to phase 9: online subtitle download/upload (needs an HTTPS client crate and an API key)
 
 ## Phase 7 — Video
 - [ ] Zoom 50/100/200%, auto fit, auto fit (larger only)
@@ -91,6 +97,7 @@ Each phase ends with a build that runs, then stops for review.
 - [ ] Save a Copy
 
 ## Phase 9 — Control and integration
+- [ ] Online subtitle download/upload (OpenSubtitles REST API; decide on the HTTPS crate and API key first)
 - [ ] Web remote: same routes as `WebServer.cpp` (`/`, `/controls.html`, `/command.html`, `/status.html`, `/variables.html`, `/info.html`, `/browser.html`, `/player.html`, `/snapshot.jpg`) and the same `wm_command` IDs
 - [ ] MPRIS D-Bus service (play/pause, seek, metadata)
 - [ ] JSON control socket as the replacement for the `MpcApi.h` commands
