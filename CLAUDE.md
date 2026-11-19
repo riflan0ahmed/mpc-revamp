@@ -1,4 +1,4 @@
-# mpc-rs
+# mpc-revamp
 
 A Rust rewrite of MPC-HC (Media Player Classic - Home Cinema). **Linux first**, Windows later.
 Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dropped" in TODO.md).
@@ -8,24 +8,24 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - `mpc-hc-develop/` — the original C++/MFC/DirectShow source. **Reference only. Never edit it.**
   It's gitignored (see README for how to get it). Its submodules (LAV Filters, MediaInfo, sanear, ...)
   are empty and not needed.
-- `mpc-rs/` — the new Rust project (Cargo).
+- `mpc-rv/` — the new Rust project (Cargo); the program is `mpc-rv`.
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
 - Tests: unit tests inline (`#[cfg(test)] mod tests`) for private details; integration tests in
-  `mpc-rs/tests/` for anything reachable through the `mpc_rs` library (`src/lib.rs`; `main.rs` stays thin).
+  `mpc-rv/tests/` for anything reachable through the `mpc_rv` library (`src/lib.rs`; `main.rs` stays thin).
 
 ## Stack
 
 - **Playback:** libmpv through the `libmpv2` crate. Use mpv for decoding, rendering, subtitles,
   audio filters, DVD/Blu-ray and capture. Don't reimplement anything mpv already does.
 - **UI:** GTK4 (`gtk4-rs`). Video is drawn into a `GLArea` with mpv's OpenGL render API.
-- **Config:** a TOML file in `$XDG_CONFIG_HOME/mpc-rs/` (via `serde` + `toml`).
+- **Config:** a TOML file in `$XDG_CONFIG_HOME/mpc-rv/` (via `serde` + `toml`).
 - **IPC:** MPRIS/D-Bus on Linux, which replaces MPC's `WM_COPYDATA` API (`MpcApi.h`).
 - **Web remote:** `tiny_http`, using the same routes as `src/mpc-hc/WebServer.cpp`.
 
 ## Dev environment
 
 - Native **Ubuntu 26.04**, GNOME on **Wayland**, NVIDIA GPU. Run everything directly from the repo:
-  `cd mpc-rs && cargo run -- ../media/test-movie.mp4`
+  `cd mpc-rv && cargo run -- ../media/test-movie.mp4`
 - System packages: `build-essential pkg-config libmpv-dev libgtk-4-dev mpv`. sudo needs a password,
   so ask the user to install packages.
 - **Test video:** always test with `media/test-movie.mp4` (a 720p x264/AAC feature film). `/media/` is

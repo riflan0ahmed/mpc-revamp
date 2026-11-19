@@ -1,4 +1,4 @@
-# mpc-rs TODO
+# mpc-revamp TODO
 
 Feature parity with MPC-HC, Linux first. `[ ]` = todo, `[x]` = done.
 Each phase ends with a build that runs, then stops for review.
@@ -10,7 +10,7 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Check that Ubuntu's libmpv (0.37) was built with DVD (dvdnav), Blu-ray, v4l2 and DVB support (all present)
 
 ## Phase 1 — Skeleton
-- [x] `cargo new mpc-rs`; add the gtk4 (0.11, `v4_12`) and libmpv2 (7.0) crates
+- [x] `cargo new mpc-rv`; add the gtk4 (0.11, `v4_12`) and libmpv2 (7.0) crates
 - [x] GTK4 window with a `GLArea`; mpv's OpenGL render API draws into it
 - [x] Play a file passed on the command line (a second launch hands its files to the running player)
 - [x] Close cleanly (mpv and GL context torn down)
@@ -46,7 +46,7 @@ Each phase ends with a build that runs, then stops for review.
       `remember_file_pos` in `config.toml` until the Options page exists)
 
 ## Phase 5 — Settings
-- [x] TOML config in `$XDG_CONFIG_HOME/mpc-rs/config.toml`, with defaults matching MPC's
+- [x] TOML config in `$XDG_CONFIG_HOME/mpc-rv/config.toml`, with defaults matching MPC's
 - [x] Options dialog with a tree of pages, like `PPage*`: Player, Keys, Logo, Playback, Fullscreen, Tweaks,
       Miscellaneous (color controls, reset, export). The other pages come with their features:
       Formats and Web Interface (phase 9), Output, Shaders and Sync (phase 7), Audio, Subtitles and
@@ -112,7 +112,7 @@ Each phase ends with a build that runs, then stops for review.
       `wm_command` IDs. Built once, removed for now (not needed yet)
 - [x] MPRIS D-Bus service: play state, metadata, position, Seek/SetPosition (Seeked signal), volume,
       rate, loop status, shuffle, OpenUri
-- [x] JSON control socket (`$XDG_RUNTIME_DIR/mpc-rs.sock`, one JSON object per line) with `MpcApi.h`'s
+- [x] JSON control socket (`$XDG_RUNTIME_DIR/mpc-rv.sock`, one JSON object per line) with `MpcApi.h`'s
       commands and events (STATE, NOWPLAYING, NOTIFYSEEK, NOTIFYENDOFSTREAM); see `remote.rs`
 - [x] `.desktop` entry, MPC's icon, MIME associations: Options > Formats and `/regvid` `/regaud`
       `/regpl` `/regall` `/unregall` (installs into `~/.local/share`, defaults in `mimeapps.list`)
@@ -123,7 +123,7 @@ Each phase ends with a build that runs, then stops for review.
 
 ## Phase 10 — DVB TV (untested: no tuner on the development machine)
 - [x] Tuner setup and channel scan (Navigate > Tuner Scan, Shift+T): runs `dvbv5-scan` for a tuner and a
-      region table into `~/.config/mpc-rs/channels.conf` (needs `dvb-tools` and `dtv-scan-tables`);
+      region table into `~/.config/mpc-rv/channels.conf` (needs `dvb-tools` and `dtv-scan-tables`);
       mpv plays the channels as `dvb://<name>`
 - [x] Channel list and switching: Navigation bar (View > Navigation, Ctrl+9), Previous/Next switch
       channels while watching TV, channel name on the OSD
