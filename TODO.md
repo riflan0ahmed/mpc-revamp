@@ -28,10 +28,11 @@ Each phase ends with a build that runs, then stops for review.
 - [x] Logo shown when idle
 
 ## Phase 3 — Command system
-- [ ] Command table ported from `wmcmd` in `AppSettings.cpp` (IDs, names, default keys)
-- [ ] Key, mouse button and mouse wheel bindings, all remappable
-- [ ] Hotkey editor in Options (Keys page)
-- [ ] Media keys through MPRIS
+- [x] Command table ported from `wmcmd` in `AppSettings.cpp` (IDs, names, default keys); commands
+      not implemented yet are listed but dimmed
+- [x] Key, mouse button and mouse wheel bindings, all remappable (saved to `config.toml` `[keys]`)
+- [x] Hotkey editor in Options (Keys page); right-click player menu (`ID_MENU_PLAYER_SHORT`)
+- [x] Media keys through MPRIS (Play/Pause/Stop/Next/Previous, bindable like MPC's App Command column)
 
 ## Phase 4 — Playlist
 - [ ] Dockable/side playlist panel; add, remove, reorder, sort, randomize

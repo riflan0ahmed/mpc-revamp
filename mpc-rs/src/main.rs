@@ -1,3 +1,7 @@
+mod commands;
+mod config;
+mod mpris;
+mod options;
 mod ui;
 mod video;
 
