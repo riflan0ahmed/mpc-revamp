@@ -82,6 +82,8 @@ struct Ui {
     after_override: Cell<Option<AfterPlayback>>,
     /// Fullscreen: when the pointer was last near the bottom edge (controls stay up for the hide delay).
     fs_zone_at: Cell<Option<Instant>>,
+    /// When a key was last pressed: the controls show for a moment, so seeking and volume are visible.
+    key_at: Cell<Option<Instant>>,
     subresync: Rc<Subresync>,
     /// Play > Audio / Subtitle / Video Track, rebuilt when the track list changes.
     track_menus: [gio::Menu; 3],
@@ -1272,7 +1274,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
          .mpc-panel button:hover { background-color: alpha(white, 0.15); }\n\
          .mpc-panel button:disabled { color: alpha(white, 0.4); }\n\
          .mpc-panel scale > trough { background-color: alpha(white, 0.3); border: none; }\n\
-         .mpc-panel scale > trough > highlight { background-color: white; border: none; }\n\
+         .mpc-panel scale > trough > highlight { background-color: white; border: none; margin: 0; }\n\
          .mpc-panel scale > trough > slider { background-color: white; border: none; box-shadow: none; min-width: 12px; min-height: 12px; margin: -5px; }\n\
          .mpc-seek { padding: 6px 12px 0 12px; }\n\
          .mpc-seek > trough { min-height: 3px; }\n\
@@ -1280,7 +1282,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
          .mpc-seek > trough > slider { opacity: 0; transition: opacity 150ms; }\n\
          .mpc-seek:hover > trough > slider { opacity: 1; }\n\
          .mpc-controls { padding: 2px 6px 4px 6px; }\n\
-         .mpc-time { margin-start: 8px; font-size: 0.95em; }\n\
+         .mpc-time { margin-left: 8px; font-size: 0.95em; }\n\
          menubar > item:selected { color: @theme_fg_color; box-shadow: inset 0 -3px @theme_fg_color; }",
     );
     gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -1477,6 +1479,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         start_paused: Cell::new(false),
         after_override: Cell::new(None),
         fs_zone_at: Cell::new(None),
+        key_at: Cell::new(None),
         subresync: resync,
         track_menus,
         tracks_sig: RefCell::new(String::new()),
@@ -1691,6 +1694,18 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         }
     });
     win.add_controller(motion);
+    // Keys run their commands as accelerators; this only notes the press (capture phase, passes it on).
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.connect_key_pressed({
+        let ui = ui.clone();
+        move |_, _, _, _| {
+            ui.key_at.set(Some(Instant::now()));
+            update_fs_reveal(&ui);
+            glib::Propagation::Proceed
+        }
+    });
+    win.add_controller(keys);
     win.connect_fullscreened_notify({
         let ui = ui.clone();
         move |win| {
@@ -1758,13 +1773,15 @@ fn sync_repeat(ui: &Ui) {
 /// - in fullscreen, while the pointer is near the bottom edge and for the hide delay after
 ///   (Options > Fullscreen), or always when hiding is off;
 /// - in a window, while the mouse moves over it (and 2 s after), and whenever playback isn't running;
+/// - for 2 s after a key press (seeking or volume from the keyboard shows on the bars);
 /// - while the pointer is on the panel.
 fn update_fs_reveal(ui: &Ui) {
     let (hide, delay) = (ui.cfg.borrow().hide_fullscreen_controls, ui.cfg.borrow().hide_fullscreen_controls_delay_ms);
     let near = ui.fs_zone_at.get().is_some_and(|t| t.elapsed() <= Duration::from_millis(delay as u64 + 100));
     let playing = !prop::<bool>(ui.mpv, "idle-active").unwrap_or(true) && !prop::<bool>(ui.mpv, "pause").unwrap_or(false) && !ui.stopped.get();
     let moving = ui.pointer_in.get() && ui.last_motion.get().elapsed() <= Duration::from_secs(2);
-    let held = ui.panel_hover.contains_pointer();
+    let keyed = ui.key_at.get().is_some_and(|t| t.elapsed() <= Duration::from_secs(2));
+    let held = keyed || ui.panel_hover.contains_pointer();
     let reveal = held || if ui.win.is_fullscreen() { !hide || near } else { !playing || moving };
     if reveal != ui.fs_reveal.get() {
         ui.fs_reveal.set(reveal);
@@ -2309,6 +2326,7 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
         add(name, Box::new(move || {
             let step = ui.cfg.borrow().volume_step as i64 * dir;
             cmd(mpv, "add", &["volume", &step.to_string()]);
+            osd(mpv, &format!("Volume: {:.0}%", prop::<f64>(mpv, "volume").unwrap_or(0.0)));
         }));
     }
     add("volume-mute", Box::new(move || cmd(mpv, "cycle", &["mute"])));
