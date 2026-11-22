@@ -1,0 +1,55 @@
+# Build the Flatpak for a release tag and attach it to that tag's GitHub release.
+#
+# Runs when a v<version> tag is pushed (creating the release if it doesn't exist yet), or by hand from
+# the Actions tab for an existing tag (e.g. to rebuild the bundle of a release that's already out).
+# Same recipe as packaging/build-flatpak.sh: packaging/flatpak/io.github.mpcrv.Player.yml.
+name: Release Flatpak
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v1.0.1
+        required: true
+
+permissions:
+  contents: write # upload to the release
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    # Flathub's image with the GNOME 51 runtime and SDK; flatpak-builder needs --privileged.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      # The tag must match the version the app reports (mpc-rv/Cargo.toml).
+      - name: Check version
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' mpc-rv/Cargo.toml | head -1)
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::Tag $TAG doesn't match version $VERSION in mpc-rv/Cargo.toml"
+            exit 1
+          fi
+          echo "BUNDLE=mpc-rv-$VERSION-x86_64.flatpak" >> "$GITHUB_ENV"
+
+      # Builds libmpv, FFmpeg and mpc-rv; the cache keeps the libraries between releases.
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.mpcrv.Player.yml
+          bundle: ${{ env.BUNDLE }}
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.mpcrv.Player.yml') }}
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.TAG }}
+          files: ${{ env.BUNDLE }}
+          fail_on_unmatched_files: true

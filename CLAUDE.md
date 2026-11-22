@@ -75,6 +75,8 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
   Contributors open pull requests against the current `release/*` branch, never `main`.
 - Merges use merge commits (`git merge --no-ff`), so each sub-branch and each release shows as one unit.
 - Releasing: bump the version on the release branch (`mpc-rv/Cargo.toml`, `Cargo.lock`, the metainfo
-  `<release>`, `packaging/aur/PKGBUILD` and `.SRCINFO`), merge it into `main`, tag `main` as `v<version>`,
-  build the packages (`packaging/build-flatpak.sh`) and publish the GitHub release.
+  `<release>`, `packaging/aur/PKGBUILD` and `.SRCINFO`), merge it into `main` and push the tag
+  `v<version>` on `main`. The "Release Flatpak" GitHub Action (`.github/workflows/release-flatpak.yml`)
+  then builds the Flatpak and attaches it to that tag's GitHub release (creating the release if needed).
+  `packaging/build-flatpak.sh` builds the same bundle locally.
 - Ask before every commit, merge, tag and push.
