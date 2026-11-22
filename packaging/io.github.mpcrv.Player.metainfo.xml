@@ -42,6 +42,12 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.2" date="2026-11-22">
+      <description>
+        <p>The screen no longer switches off while a video plays. Keyboard seeking and volume show
+        the control bar, and volume changes show the new level on the video.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-11-22">
       <description>
         <p>New control bar in the style of web players: it sits over the video, hides while the
