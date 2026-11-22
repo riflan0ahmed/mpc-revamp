@@ -38,7 +38,7 @@ const BARS: &[(&str, &str, bool)] = &[
     ("view-statistics", "Statistics", false),
     ("view-seeker", "Seek Bar", true),
     ("view-controls", "Controls", true),
-    ("view-status", "Status", true),
+    ("view-status", "Status", false),
 ];
 
 struct Ui {
@@ -104,12 +104,14 @@ struct Ui {
     record: gtk::ToggleButton,
     /// Navigation bar (View > Navigation): the DVB channel list.
     channel_list: gtk::ListBox,
-    /// The window's rows, and the fullscreen panel that the seek bar, controls and status move into.
-    vbox: gtk::Box,
-    fs_panel: gtk::Box,
+    /// The panel over the video that holds the seek bar, controls and status.
     fs_revealer: gtk::Revealer,
-    /// Play, Pause, Stop: the one matching the play state is shown pressed.
-    state_buttons: [gtk::ToggleButton; 3],
+    /// The pointer is over the panel / inside the window.
+    panel_hover: gtk::EventControllerMotion,
+    pointer_in: Cell<bool>,
+    /// Controls: play/pause (its icon follows the play state), fullscreen.
+    play_button: gtk::Button,
+    fs_button: gtk::Button,
     /// JSON socket: its requests, answered on this thread in `update`.
     jobs: mpsc::Receiver<Job>,
     ipc: Option<remote::Clients>,
@@ -1236,67 +1238,52 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     let seek = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 1.0);
     seek.set_draw_value(false);
     seek.set_focusable(false);
+    seek.add_css_class("mpc-seek");
 
-    let controls = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    controls.set_margin_start(4);
-    controls.set_margin_end(4);
-    // Play / Pause / Stop show which one is in effect (pressed in, as in MPC's toolbar).
-    let mut state_buttons = Vec::new();
-    for (icon, action, tip) in [
-        ("media-playback-start-symbolic", "win.play-play", "Play"),
-        ("media-playback-pause-symbolic", "win.play-pause", "Pause"),
-        ("media-playback-stop-symbolic", "win.play-stop", "Stop"),
-        ("media-skip-backward-symbolic", "win.navigate-skipback", "Previous"),
-        ("media-skip-forward-symbolic", "win.navigate-skipforward", "Next"),
-        ("mpc-frame-step-symbolic", "win.play-framestep", "Frame Step"),
-    ] {
-        let b: gtk::Button = if state_buttons.len() < 3 {
-            let t = gtk::ToggleButton::builder().icon_name(icon).css_classes(["mpc-state"]).build();
-            state_buttons.push(t.clone());
-            t.upcast()
-        } else {
-            gtk::Button::from_icon_name(icon)
-        };
-        b.set_action_name(Some(action));
-        b.set_tooltip_text(Some(&tr(tip)));
-        b.set_focusable(false);
-        b.add_css_class("flat");
+    // One row in the style of web players: play/pause, volume, time on the left; fullscreen on the
+    // right. Stop, Previous/Next, Frame Step, tracks and speed are in the menus.
+    let controls = gtk::Box::builder().spacing(2).css_classes(["mpc-controls"]).build();
+    let button = |icon: &str, action: &str, tip: &str| {
+        let b = gtk::Button::builder().icon_name(icon).action_name(action).tooltip_text(tr(tip)).focusable(false).css_classes(["flat"]).build();
         controls.append(&b);
-    }
-    let state_buttons: [gtk::ToggleButton; 3] = state_buttons.try_into().expect("play, pause and stop buttons");
-    // One fixed highlight color, the same on every theme and distro: the seek and volume bars, and
-    // the active Play/Pause/Stop button (a light tint behind the icon, the icon in that color).
-    // The fullscreen panel sits on dark video, so it's drawn light-on-dark whatever the theme.
-    // Plain GTK only rounds a window's top corners (libadwaita rounds all four); round the bottom
-    // ones too, except when the window is maximized, tiled or fullscreen.
-    let css = gtk::CssProvider::new();
-    css.load_from_string(
-        "@define-color mpc_accent #e95420;\n\
-         scale > trough > highlight { background-color: @mpc_accent; border-color: @mpc_accent; }\n\
-         .mpc-state:checked { color: @mpc_accent; background-color: alpha(@mpc_accent, 0.2); }\n\
-         .mpc-state:checked:hover { background-color: alpha(@mpc_accent, 0.3); }\n\
-         .mpc-fs-panel { background-color: alpha(black, 0.65); padding-top: 4px; color: white; }\n\
-         .mpc-fs-panel button { color: white; }\n\
-         .mpc-fs-panel button:hover { background-color: alpha(white, 0.15); }\n\
-         .mpc-fs-panel button:disabled { color: alpha(white, 0.4); }\n\
-         .mpc-fs-panel .mpc-state:checked { color: @mpc_accent; background-color: alpha(@mpc_accent, 0.25); }\n\
-         .mpc-fs-panel scale > trough { background-color: alpha(white, 0.3); }\n\
-         window.csd:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-top):not(.tiled-bottom):not(.tiled-left):not(.tiled-right) \
-           { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }",
-    );
-    gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
-    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    spacer.set_hexpand(true);
-    controls.append(&spacer);
-    let mute = gtk::ToggleButton::builder().icon_name("audio-volume-high-symbolic").tooltip_text("Mute").focusable(false).build();
-    mute.add_css_class("flat");
+        b
+    };
+    let play_button = button("media-playback-start-symbolic", "win.play-playpause", "Play/Pause");
+    let mute = gtk::ToggleButton::builder().icon_name("audio-volume-high-symbolic").tooltip_text("Mute").focusable(false).css_classes(["flat"]).build();
     controls.append(&mute);
     let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
     volume.set_draw_value(false);
     volume.set_focusable(false);
-    volume.set_width_request(110);
+    volume.set_width_request(80);
     volume.set_value(100.0);
     controls.append(&volume);
+    let time = gtk::Label::builder().css_classes(["numeric", "mpc-time"]).build();
+    controls.append(&time);
+    let spacer = gtk::Box::builder().hexpand(true).build();
+    controls.append(&spacer);
+    let fs_button = button("view-fullscreen-symbolic", "win.view-fullscreen", "Fullscreen");
+    // The panel over the video: white controls on a fade, the played part of the bars solid white
+    // and the rest faint. The open menu bar item is underlined in the text color (white on a dark
+    // theme), not the theme's accent (Ubuntu's orange).
+    let css = gtk::CssProvider::new();
+    css.load_from_string(
+        ".mpc-panel { background-image: linear-gradient(to bottom, transparent, alpha(black, 0.6)); padding-top: 24px; color: white; }\n\
+         .mpc-panel button { color: white; min-width: 32px; min-height: 32px; }\n\
+         .mpc-panel button:hover { background-color: alpha(white, 0.15); }\n\
+         .mpc-panel button:disabled { color: alpha(white, 0.4); }\n\
+         .mpc-panel scale > trough { background-color: alpha(white, 0.3); border: none; }\n\
+         .mpc-panel scale > trough > highlight { background-color: white; border: none; }\n\
+         .mpc-panel scale > trough > slider { background-color: white; border: none; box-shadow: none; min-width: 12px; min-height: 12px; margin: -5px; }\n\
+         .mpc-seek { padding: 6px 12px 0 12px; }\n\
+         .mpc-seek > trough { min-height: 3px; }\n\
+         .mpc-seek:hover > trough { min-height: 5px; }\n\
+         .mpc-seek > trough > slider { opacity: 0; transition: opacity 150ms; }\n\
+         .mpc-seek:hover > trough > slider { opacity: 1; }\n\
+         .mpc-controls { padding: 2px 6px 4px 6px; }\n\
+         .mpc-time { margin-start: 8px; font-size: 0.95em; }\n\
+         menubar > item:selected { color: @theme_fg_color; box-shadow: inset 0 -3px @theme_fg_color; }",
+    );
+    gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
     let status = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     status.set_margin_start(8);
@@ -1304,9 +1291,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     status.set_margin_top(4);
     status.set_margin_bottom(6);
     let state = gtk::Label::builder().xalign(0.0).hexpand(true).label("Stopped").build();
-    let time = gtk::Label::new(None);
     status.append(&state);
-    status.append(&time);
 
     let pl = Rc::new(RefCell::new(Playlist::default()));
     pl.borrow_mut().shuffle = cfg.shuffle;
@@ -1366,19 +1351,23 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     navigation.append(&nav_head);
     navigation.append(&gtk::ScrolledWindow::builder().min_content_height(140).max_content_height(140).child(&channel_list).build());
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), navigation.upcast_ref(), info.upcast_ref(), stats.upcast_ref(), seek.upcast_ref(), controls.upcast_ref(), status.upcast_ref()] {
+    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), navigation.upcast_ref(), info.upcast_ref(), stats.upcast_ref()] {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
-    // Fullscreen: the seek bar, controls and status move into this panel, which slides up over the
-    // bottom of the video (the video keeps its size).
-    let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["mpc-fs-panel"]).build();
+    // The seek bar, controls and status are in a panel over the bottom of the video, as in web
+    // players: it slides up while the mouse is in use (and while paused in a window).
+    let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["mpc-panel"]).build();
+    for w in [seek.upcast_ref::<gtk::Widget>(), controls.upcast_ref(), status.upcast_ref()] {
+        fs_panel.append(w);
+    }
+    let panel_hover = gtk::EventControllerMotion::new();
+    fs_panel.add_controller(panel_hover.clone());
     let fs_revealer = gtk::Revealer::builder()
         .transition_type(gtk::RevealerTransitionType::SlideUp)
         .transition_duration(250)
         .valign(gtk::Align::End)
         .child(&fs_panel)
-        .visible(false)
         .build();
     overlay.add_overlay(&fs_revealer);
 
@@ -1503,10 +1492,11 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         capture_label,
         record,
         channel_list: channel_list.clone(),
-        vbox: vbox.clone(),
-        fs_panel: fs_panel.clone(),
         fs_revealer: fs_revealer.clone(),
-        state_buttons: state_buttons.clone(),
+        panel_hover,
+        pointer_in: Cell::new(false),
+        play_button,
+        fs_button,
         jobs,
         ipc,
         last_state: Cell::new("Stopped"),
@@ -1515,10 +1505,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
 
     add_actions(app, &ui);
     apply_settings(&ui);
-    for b in &ui.state_buttons {
-        let ui = ui.clone();
-        b.connect_clicked(move |_| sync_state_buttons(&ui));
-    }
     refresh_discs(&ui);
     refresh_favorites(&ui);
     refresh_channels(&ui);
@@ -1683,11 +1669,19 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     });
     overlay.add_controller(scroll);
 
-    // --- fullscreen: reveal seek bar + controls near the bottom edge, auto-hide cursor ---
+    // --- reveal seek bar + controls when the mouse moves (near the bottom edge in fullscreen) ---
     let motion = gtk::EventControllerMotion::new();
+    motion.connect_leave({
+        let ui = ui.clone();
+        move |_| {
+            ui.pointer_in.set(false);
+            update_fs_reveal(&ui);
+        }
+    });
     motion.connect_motion({
         let ui = ui.clone();
         move |_, _, y| {
+            ui.pointer_in.set(true);
             ui.last_motion.set(Instant::now());
             ui.video.set_cursor(None);
             if ui.win.is_fullscreen() && y > ui.win.height() as f64 - 150.0 {
@@ -1702,7 +1696,9 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         move |win| {
             ui.fs_zone_at.set(None);
             ui.fs_reveal.set(false);
-            move_bottom_bars(&ui, win.is_fullscreen());
+            let (icon, tip) = if win.is_fullscreen() { ("view-restore-symbolic", "Exit Fullscreen") } else { ("view-fullscreen-symbolic", "Fullscreen") };
+            ui.fs_button.set_icon_name(icon);
+            ui.fs_button.set_tooltip_text(Some(&tr(tip)));
             update_fs_reveal(&ui);
             relayout(&ui);
         }
@@ -1758,32 +1754,18 @@ fn sync_repeat(ui: &Ui) {
     }
 }
 
-/// Put the seek bar, controls and status into the fullscreen panel (over the video), or back into the
-/// window's rows below it.
-fn move_bottom_bars(ui: &Ui, fullscreen: bool) {
-    let bar = |name: &str| ui.bars.iter().find(|(n, _)| *n == name).map(|(_, w)| w.clone()).unwrap();
-    let (anchor, rows) = (bar("view-statistics"), [bar("view-seeker"), bar("view-controls"), bar("view-status")]);
-    let mut after = anchor;
-    for w in rows {
-        let in_panel = w.parent().as_ref() == Some(ui.fs_panel.upcast_ref());
-        if fullscreen && !in_panel {
-            ui.vbox.remove(&w);
-            ui.fs_panel.append(&w);
-        } else if !fullscreen && in_panel {
-            ui.fs_panel.remove(&w);
-            ui.vbox.insert_child_after(&w, Some(&after));
-        }
-        after = w;
-    }
-    ui.fs_revealer.set_visible(fullscreen);
-}
-
-/// Fullscreen controls show while the pointer is near the bottom edge, and for the hide delay after
-/// (Options > Fullscreen), or always when hiding is off.
+/// The panel over the video shows:
+/// - in fullscreen, while the pointer is near the bottom edge and for the hide delay after
+///   (Options > Fullscreen), or always when hiding is off;
+/// - in a window, while the mouse moves over it (and 2 s after), and whenever playback isn't running;
+/// - while the pointer is on the panel.
 fn update_fs_reveal(ui: &Ui) {
     let (hide, delay) = (ui.cfg.borrow().hide_fullscreen_controls, ui.cfg.borrow().hide_fullscreen_controls_delay_ms);
     let near = ui.fs_zone_at.get().is_some_and(|t| t.elapsed() <= Duration::from_millis(delay as u64 + 100));
-    let reveal = ui.win.is_fullscreen() && (!hide || near);
+    let playing = !prop::<bool>(ui.mpv, "idle-active").unwrap_or(true) && !prop::<bool>(ui.mpv, "pause").unwrap_or(false) && !ui.stopped.get();
+    let moving = ui.pointer_in.get() && ui.last_motion.get().elapsed() <= Duration::from_secs(2);
+    let held = ui.panel_hover.contains_pointer();
+    let reveal = held || if ui.win.is_fullscreen() { !hide || near } else { !playing || moving };
     if reveal != ui.fs_reveal.get() {
         ui.fs_reveal.set(reveal);
         // Slide in reasonably quickly, slide out more gently.
@@ -1801,7 +1783,7 @@ fn relayout(ui: &Ui) {
         let on = ui.win.action_state(name).and_then(|v| v.get::<bool>()).unwrap_or(true);
         let cfg = ui.cfg.borrow();
         let fs_ok = match *name {
-            // In the fullscreen panel, which slides in and out by itself.
+            // In the panel over the video, which slides in and out by itself.
             "view-seeker" | "view-controls" | "view-status" => true,
             "view-playlist" => !cfg.hide_playlist_fullscreen && (!cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get()),
             "view-subresync" | "view-capture" | "view-navigation" => !cfg.hide_fullscreen_docked_panels || ui.fs_reveal.get(),
@@ -1906,7 +1888,7 @@ fn update(ui: &Rc<Ui>) {
         "Playing"
     };
     ui.state.set_label(state);
-    sync_state_buttons(ui);
+    sync_play_button(ui);
     let mpris_state = match state {
         "Stopped" => "Stopped",
         "Paused" => "Paused",
@@ -1949,14 +1931,13 @@ fn update(ui: &Rc<Ui>) {
 }
 
 /// Press in the button for the current play state (and release the others).
-fn sync_state_buttons(ui: &Ui) {
+fn sync_play_button(ui: &Ui) {
     let idle = prop::<bool>(ui.mpv, "idle-active").unwrap_or(true);
     let paused = prop::<bool>(ui.mpv, "pause").unwrap_or(false);
-    let current = if idle || ui.stopped.get() { 2 } else if paused { 1 } else { 0 };
-    for (i, b) in ui.state_buttons.iter().enumerate() {
-        if b.is_active() != (i == current) {
-            b.set_active(i == current);
-        }
+    let playing = !idle && !ui.stopped.get() && !paused;
+    let icon = if playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" };
+    if ui.play_button.icon_name().as_deref() != Some(icon) {
+        ui.play_button.set_icon_name(icon);
     }
 }
 
@@ -2404,7 +2385,7 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
     };
     add("view-presets-minimal", preset(&[]));
     add("view-presets-compact", preset(&["view-seeker"]));
-    add("view-presets-normal", preset(&["view-captionmenu", "view-seeker", "view-controls", "view-status"]));
+    add("view-presets-normal", preset(&["view-captionmenu", "view-seeker", "view-controls"]));
     for name in ["view-fullscreen", "view-fullscreen-secondary"] {
         add(name, Box::new({
             let win = win.clone();
