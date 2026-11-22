@@ -119,6 +119,9 @@ struct Ui {
     ipc: Option<remote::Clients>,
     /// Last play state sent to JSON clients.
     last_state: Cell<&'static str>,
+    /// While playing, the desktop is asked not to sleep (and, for video, not to blank the screen):
+    /// the inhibit cookie and whether it covers the screen.
+    inhibit: Cell<Option<(u32, bool)>>,
 }
 
 /// MPRIS's loop status and shuffle, from the settings.
@@ -1503,6 +1506,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         jobs,
         ipc,
         last_state: Cell::new("Stopped"),
+        inhibit: Cell::new(None),
     });
     UI.with_borrow_mut(|u| *u = Some(ui.clone()));
 
@@ -1912,6 +1916,7 @@ fn update(ui: &Rc<Ui>) {
         _ => "Playing",
     };
     ui.mpris.set_status(mpris_state);
+    update_inhibit(ui, mpris_state == "Playing");
     if ui.last_state.replace(mpris_state) != mpris_state {
         broadcast(ui, json!({"event": "STATE", "state": mpris_state}));
     }
@@ -1948,6 +1953,29 @@ fn update(ui: &Rc<Ui>) {
 }
 
 /// Press in the button for the current play state (and release the others).
+/// Like MPC: during playback the computer doesn't go to sleep, and for video the screen doesn't
+/// blank either (audio alone lets it). Paused, stopped or at the end, both are allowed again.
+fn update_inhibit(ui: &Ui, playing: bool) {
+    let video = prop::<i64>(ui.mpv, "vid").is_some() && !prop::<bool>(ui.mpv, "current-tracks/video/albumart").unwrap_or(false);
+    let want = playing.then_some(video);
+    if ui.inhibit.get().map(|(_, v)| v) == want {
+        return;
+    }
+    // Cookie 0: the desktop refused; nothing to undo (and no retry until the state changes).
+    if let Some((cookie, _)) = ui.inhibit.take().filter(|(c, _)| *c != 0) {
+        ui.app.uninhibit(cookie);
+    }
+    if let Some(video) = want {
+        let (flags, reason) = if video {
+            (gtk::ApplicationInhibitFlags::IDLE | gtk::ApplicationInhibitFlags::SUSPEND, "Playing video")
+        } else {
+            (gtk::ApplicationInhibitFlags::SUSPEND, "Playing audio")
+        };
+        let cookie = ui.app.inhibit(Some(&ui.win), flags, Some(reason));
+        ui.inhibit.set(Some((cookie, video)));
+    }
+}
+
 fn sync_play_button(ui: &Ui) {
     let idle = prop::<bool>(ui.mpv, "idle-active").unwrap_or(true);
     let paused = prop::<bool>(ui.mpv, "pause").unwrap_or(false);
