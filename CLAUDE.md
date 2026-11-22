@@ -64,3 +64,17 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - Commit messages: no `Co-Authored-By: Claude` trailer and no "Generated with Claude Code" lines.
 - License is GPL-3.0-or-later (same as MPC-HC), so porting MPC-HC code and assets is allowed.
 - Keep it simple: few crates, few files, no abstractions written "for later".
+
+## Branches and releases
+
+- `main` holds released versions only. Each upcoming version has a release branch, `release/<version>`
+  (e.g. `release/1.0.1`), made from `main`.
+- All work happens on a sub-branch made from the current release branch: `feature/<name>` for new work,
+  `fix/<name>` for bug fixes.
+- Only the admin (the repository owner) merges into `release/*` and `main`, after checking the work.
+  Contributors open pull requests against the current `release/*` branch, never `main`.
+- Merges use merge commits (`git merge --no-ff`), so each sub-branch and each release shows as one unit.
+- Releasing: bump the version on the release branch (`mpc-rv/Cargo.toml`, `Cargo.lock`, the metainfo
+  `<release>`, `packaging/aur/PKGBUILD` and `.SRCINFO`), merge it into `main`, tag `main` as `v<version>`,
+  build the packages (`packaging/build-flatpak.sh`) and publish the GitHub release.
+- Ask before every commit, merge, tag and push.

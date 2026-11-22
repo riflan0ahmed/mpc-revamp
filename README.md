@@ -186,7 +186,15 @@ Developers are warmly welcome. You can help in many ways:
 - **New features:** pick an unchecked item from [TODO.md](TODO.md), or open an issue to suggest one.
 - **Packaging:** the `.deb` and AppImage packages aren't ready yet, and help with them is welcome.
 
-Open a pull request when you're ready. Small, focused changes are the easiest to review.
+How to send a change:
+
+1. Branch off the current `release/<version>` branch (for example `release/1.0.1`), not `main`.
+   Name your branch `feature/<name>` for new work or `fix/<name>` for a bug fix.
+2. Open a pull request against that `release/<version>` branch.
+3. The maintainer reviews it and merges it. When a release is ready, it's merged into `main`
+   and published.
+
+Small, focused changes are the easiest to review.
 
 ## Credits
 
