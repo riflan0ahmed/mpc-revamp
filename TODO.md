@@ -133,8 +133,8 @@ Each phase ends with a build that runs, then stops for review.
 ## Packaging (Linux)
 - [x] Flatpak bundle on GitHub Releases (`packaging/build-flatpak.sh`, GNOME 51 runtime, bundled
       libmpv 0.41 and FFmpeg 7.1)
-- [x] GitHub Action: a pushed `v<version>` tag builds the Flatpak and attaches it to the release
-      (`.github/workflows/release-flatpak.yml`; can also be run by hand for an existing tag)
+- [x] GitHub Action: merging a version bump into `main` tags `v<version>`, builds the Flatpak and
+      attaches it to the release (`.github/workflows/release-flatpak.yml`; can also be run by hand)
 - [ ] AUR: `packaging/aur/PKGBUILD` is built and tested in an Arch container; upload it once AUR
       registration reopens, then switch the README to `yay -S mpc-rv`
 - [ ] `.deb`: build on Ubuntu 24.04 (podman container) for wide coverage. Needs fallbacks for mpv
