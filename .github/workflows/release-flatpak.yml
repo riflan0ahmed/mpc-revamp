@@ -1,21 +1,30 @@
-# Build the Flatpak for a release tag and attach it to that tag's GitHub release.
+# Build the Flatpak for a release and attach it to that release on GitHub.
 #
-# Runs when a v<version> tag is pushed (creating the release if it doesn't exist yet), or by hand from
-# the Actions tab for an existing tag (e.g. to rebuild the bundle of a release that's already out).
+# Runs on every push to main (merging a release branch, by pull request or locally). It reads the version
+# from mpc-rv/Cargo.toml and releases it as v<version>: the tag and the GitHub release are created if
+# they don't exist yet. If v<version> already exists on an earlier commit, the version wasn't bumped,
+# so nothing is released.
+# Can also be run by hand from the Actions tab: leave the tag empty to release the version on main, or
+# give an existing tag to rebuild its bundle (e.g. for a release that's already out).
 # Same recipe as packaging/build-flatpak.sh: packaging/flatpak/io.github.mpcrv.Player.yml.
 name: Release Flatpak
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build, e.g. v1.0.1
-        required: true
+        description: Existing tag to rebuild, e.g. v1.0.1 (leave empty to release the version on main)
+        required: false
 
 permissions:
-  contents: write # upload to the release
+  contents: write # create the tag and release, upload to it
+
+# One release build at a time; a second push to main waits instead of racing the first.
+concurrency:
+  group: release-flatpak
+  cancel-in-progress: false
 
 jobs:
   flatpak:
@@ -24,32 +33,55 @@ jobs:
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.TAG }}
+          fetch-depth: 0 # all tags, to see whether this version is already released
 
-      # The tag must match the version the app reports (mpc-rv/Cargo.toml).
-      - name: Check version
+      # Picks the tag and checks it matches the version the app reports (mpc-rv/Cargo.toml).
+      - name: Pick release tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' mpc-rv/Cargo.toml | head -1)
-          if [ "v$VERSION" != "$TAG" ]; then
-            echo "::error::Tag $TAG doesn't match version $VERSION in mpc-rv/Cargo.toml"
-            exit 1
+          version() { sed -n 's/^version = "\(.*\)"/\1/p' mpc-rv/Cargo.toml | head -1; }
+          if [ -n "$INPUT_TAG" ]; then
+            if ! git rev-parse -q --verify "refs/tags/$INPUT_TAG" >/dev/null; then
+              echo "::error::Tag $INPUT_TAG doesn't exist. Leave the tag empty to release the version on main."
+              exit 1
+            fi
+            git checkout -q "$INPUT_TAG"
+            TAG=$INPUT_TAG
+            if [ "v$(version)" != "$TAG" ]; then
+              echo "::error::Tag $TAG doesn't match version $(version) in mpc-rv/Cargo.toml"
+              exit 1
+            fi
+          else
+            TAG=v$(version)
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+                && [ "$(git rev-list -n 1 "$TAG")" != "$(git rev-parse HEAD)" ]; then
+              echo "::notice::$TAG is already released from an earlier commit. Bump the version in mpc-rv/Cargo.toml to make a new release."
+              echo "SKIP=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
           fi
-          echo "BUNDLE=mpc-rv-$VERSION-x86_64.flatpak" >> "$GITHUB_ENV"
+          echo "Releasing $TAG from $(git rev-parse --short HEAD)"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "BUNDLE=mpc-rv-${TAG#v}-x86_64.flatpak" >> "$GITHUB_ENV"
 
       # Builds libmpv, FFmpeg and mpc-rv; the cache keeps the libraries between releases.
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        if: env.SKIP != '1'
         with:
           manifest-path: packaging/flatpak/io.github.mpcrv.Player.yml
           bundle: ${{ env.BUNDLE }}
           cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.mpcrv.Player.yml') }}
 
+      # Creates the release, and the tag on COMMIT if it doesn't exist yet.
       - uses: softprops/action-gh-release@v3
+        if: env.SKIP != '1'
         with:
           tag_name: ${{ env.TAG }}
+          target_commitish: ${{ env.COMMIT }}
           files: ${{ env.BUNDLE }}
           fail_on_unmatched_files: true
