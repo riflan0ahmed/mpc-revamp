@@ -288,7 +288,7 @@ impl Default for Config {
             sub_delay_step_ms: 500,
             sub_override_ass: false,
             sub_font: "sans-serif".into(),
-            sub_font_size: 38,
+            sub_font_size: 30,
             sub_bold: false,
             sub_italic: false,
             sub_color: "#ffffffff".into(),
