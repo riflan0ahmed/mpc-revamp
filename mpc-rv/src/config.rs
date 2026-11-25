@@ -109,6 +109,10 @@ pub enum TitleBar {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Which settings format the file was saved with; missing (0) in files from before 1.0.4.
+    /// `load` uses it to update defaults that changed since.
+    #[serde(default)]
+    pub config_version: u32,
     // Player
     pub allow_multiple_instances: bool,
     pub title_bar: TitleBar,
@@ -225,9 +229,13 @@ pub struct Config {
     pub hide_playlist_fullscreen: bool,
 }
 
+/// The current settings format, see `Config::config_version`.
+const CONFIG_VERSION: u32 = 1;
+
 impl Default for Config {
     fn default() -> Config {
         Config {
+            config_version: CONFIG_VERSION,
             allow_multiple_instances: false,
             title_bar: TitleBar::FileName,
             title_bar_media_title: false,
@@ -288,7 +296,7 @@ impl Default for Config {
             sub_delay_step_ms: 500,
             sub_override_ass: false,
             sub_font: "sans-serif".into(),
-            sub_font_size: 30,
+            sub_font_size: 26,
             sub_bold: false,
             sub_italic: false,
             sub_color: "#ffffffff".into(),
@@ -408,7 +416,18 @@ fn write<T: Serialize>(name: &str, value: &T) {
 }
 
 pub fn load() -> Config {
-    read("config.toml")
+    upgrade(read("config.toml"))
+}
+
+/// Every setting used to be saved, defaults included, so a changed default never reached
+/// existing users. Move settings still at an old default to the current one.
+pub fn upgrade(mut config: Config) -> Config {
+    if config.config_version < 1 && matches!(config.sub_font_size, 38 | 30) {
+        // The subtitle size defaults of 1.0.2 and 1.0.3.
+        config.sub_font_size = Config::default().sub_font_size;
+    }
+    config.config_version = CONFIG_VERSION;
+    config
 }
 
 pub fn save(config: &Config) {
