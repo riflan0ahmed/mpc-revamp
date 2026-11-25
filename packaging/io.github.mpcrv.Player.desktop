@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=mpc-rv
+Name=MPC-RV
 GenericName=Media Player
 Comment=Unofficial Rust rewrite inspired by Media Player Classic - Home Cinema
 Exec=mpc-rv %U

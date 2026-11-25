@@ -1,4 +1,4 @@
-# mpc-revamp
+# MPC-RV
 
 A Rust rewrite of MPC-HC (Media Player Classic - Home Cinema). **Linux first**, Windows later.
 Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dropped" in TODO.md).
@@ -8,17 +8,30 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - `mpc-hc-develop/` — the original C++/MFC/DirectShow source. **Reference only. Never edit it.**
   It's gitignored (see README for how to get it). Its submodules (LAV Filters, MediaInfo, sanear, ...)
   are empty and not needed.
-- `mpc-rv/` — the new Rust project (Cargo); the program is `mpc-rv`.
+- `mpc-rv/` — the new Rust project: a Cargo workspace whose root package is the GTK app (the program
+  `mpc-rv`; the app's name, as users see it, is **MPC-RV**).
+  - `mpc-rv/core/` — the `mpc-core` crate: everything with no UI (playlist, commands, config, command
+    line, subtitles, i18n, paths, and `player`: starting mpv and the settings as mpv options). No GTK and
+    no platform APIs here (mpv is fine); it's shared with the Windows app.
+    The GTK crate re-exports its modules (`mpc_rv::config` etc.).
+  - `mpc-rv/res/` — icons, logo, translations (PO), shaders; shared by both crates.
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
+- `ARCHITECTURE.md` — diagrams of how the crates and files connect, for readers new to Rust. Update it
+  when a source file is added, removed or moved, or when one starts or stops using another.
 - Tests: unit tests inline (`#[cfg(test)] mod tests`) for private details; integration tests in
-  `mpc-rv/tests/` for anything reachable through the `mpc_rv` library (`src/lib.rs`; `main.rs` stays thin).
+  `mpc-rv/core/tests/` for the `mpc_core` library and `mpc-rv/tests/` for the `mpc_rv` library
+  (`src/lib.rs`; `main.rs` stays thin). Run them all with `cargo test --workspace`.
 
 ## Stack
 
 - **Playback:** libmpv through the `libmpv2` crate. Use mpv for decoding, rendering, subtitles,
   audio filters, DVD/Blu-ray and capture. Don't reimplement anything mpv already does.
-- **UI:** GTK4 (`gtk4-rs`). Video is drawn into a `GLArea` with mpv's OpenGL render API.
-- **Config:** a TOML file in `$XDG_CONFIG_HOME/mpc-rv/` (via `serde` + `toml`).
+- **UI (Linux):** GTK4 (`gtk4-rs`). Video is drawn into a `GLArea` with mpv's OpenGL render API.
+- **UI (Windows, planned):** a native Win32 app through the `windows` crate (Windows 11 look: dark mode,
+  Mica), in its own workspace crate on top of `mpc-core`; mpv draws straight into the window (`wid`).
+  Not GTK on Windows. See Phase 11 in TODO.md.
+- **Config:** a TOML file in `$XDG_CONFIG_HOME/mpc-rv/` (via `serde` + `toml`). User folders come from
+  `mpc_core::paths` (same results as GLib on Linux), not GLib, so the core stays GTK-free.
 - **IPC:** MPRIS/D-Bus on Linux, which replaces MPC's `WM_COPYDATA` API (`MpcApi.h`).
 - **Web remote:** `tiny_http`, using the same routes as `src/mpc-hc/WebServer.cpp`.
 

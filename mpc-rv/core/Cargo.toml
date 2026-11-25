@@ -1,0 +1,11 @@
+[package]
+name = "mpc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The UI-free part of mpc-rv: playlist, commands, settings, command line, subtitles, translations"
+
+[dependencies]
+libmpv2 = "7.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.1"

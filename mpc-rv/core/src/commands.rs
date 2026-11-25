@@ -346,12 +346,6 @@ mod tests {
         names.sort();
         names.dedup();
         assert_eq!(names.len(), COMMANDS.len(), "duplicate action name");
-        for c in COMMANDS {
-            if !c.key.is_empty() {
-                let name = c.key.rsplit('>').next().unwrap();
-                assert!(gtk4::gdk::Key::from_name(name).is_some(), "bad key {} for {}", c.key, c.action);
-            }
-        }
         assert_eq!(Mouse::button(1, Click::Double), Mouse::LDblClk);
         assert_eq!(Mouse::button(9, Click::Up), Mouse::X2Up);
         assert_eq!(Mouse::button(3, Click::Down), Mouse::RDown);

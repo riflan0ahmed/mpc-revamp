@@ -10,16 +10,17 @@ use crate::{
     integration::{self, SystemAction},
     mpris::{self, Mpris, PlayerState},
     options,
+    player::{self, PanScan, cmd, cycle_track, hms, osd, prop},
     playlist::{self, Entry, Playlist},
     playlistbar::{self, Bar, Request},
     remote::{self, Job},
     shaders,
     subresync::{self, Subresync},
     video,
-    view::{self, PanScan},
+    view,
 };
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
-use libmpv2::{GetData, Mpv};
+use libmpv2::Mpv;
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -324,24 +325,9 @@ fn apply_video(ui: &Ui) {
     let c = ui.cfg.borrow();
     // display-resample needs the refresh rate, which the render API can't see by itself.
     let refresh = ui.win.surface().and_then(|s| WidgetExt::display(&ui.win).monitor_at_surface(&s)).map_or(0.0, |m| m.refresh_rate() as f64 / 1000.0);
-    for (name, value) in [
-        ("hwdec", if c.hwdec { "auto-safe" } else { "no" }.to_string()),
-        ("icc-profile-auto", if c.color_management { "yes" } else { "no" }.into()),
-        ("icc-intent", c.icc_intent.to_string()),
-        ("video-output-levels", if c.output_limited { "limited" } else { "full" }.into()),
-        ("video-sync", if c.sync_to_display { "display-resample" } else { "audio" }.into()),
-        ("interpolation", if c.interpolation && c.sync_to_display { "yes" } else { "no" }.into()),
-        ("display-fps-override", format!("{refresh:.3}")),
-        ("osd-level", if c.show_osd { "1" } else { "0" }.into()),
-        ("osd-font", c.osd_font.clone()),
-        ("osd-font-size", c.osd_font_size.to_string()),
-    ] {
-        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
-            eprintln!("mpv {name}={value}: {e}");
-        }
-    }
+    player::apply(ui.mpv, &player::video_options(&c, refresh));
+    player::apply(ui.mpv, &player::frame_options(c.video_frame));
     drop(c);
-    view::apply_frame(ui.mpv, ui.cfg.borrow().video_frame);
     if let Some(a) = ui.win.lookup_action("video-frame").and_downcast::<gio::SimpleAction>() {
         let name = FRAMES.iter().find(|f| f.2 == ui.cfg.borrow().video_frame).map_or("", |f| f.1);
         a.set_state(&name.to_variant());
@@ -361,7 +347,7 @@ fn pan_scan(ui: &Ui, f: impl FnOnce(&mut PanScan)) {
     let mut p = ui.pan_scan.get();
     f(&mut p);
     ui.pan_scan.set(p);
-    p.apply(ui.mpv);
+    player::apply(ui.mpv, &p.options());
 }
 
 /// File > Save Image: the current frame as shown (with subtitles); the format follows the extension.
@@ -387,84 +373,14 @@ fn snapshot_name(ui: &Ui) -> String {
 
 const TRACK_KINDS: [(&str, &str, &str); 3] = [("audio", "aid", "audio-track"), ("sub", "sid", "sub-track"), ("video", "vid", "video-track")];
 
-/// mpv's OSD line, as MPC shows rate and delay changes on its OSD.
-fn osd(mpv: &Mpv, text: &str) {
-    cmd(mpv, "show-text", &[text, "1500"]);
-}
-
-/// Hex "#RRGGBBAA" (our config, like CSS) to mpv's "#AARRGGBB".
-fn mpv_color(c: &str) -> String {
-    let h = c.trim_start_matches('#');
-    if h.len() == 8 { format!("#{}{}", &h[6..], &h[..6]) } else { format!("#{h}") }
-}
-
-/// The audio filter chain and output options from Options > Audio.
+/// Options > Audio.
 fn apply_audio(ui: &Ui) {
-    let cfg = ui.cfg.borrow();
-    let mut af = Vec::new();
-    if cfg.audio_normalize {
-        af.push(format!("lavfi=[dynaudnorm=m={:.2}]", (cfg.audio_max_norm_factor as f64 / 100.0).clamp(1.0, 100.0)));
-    }
-    if cfg.crossfeed {
-        af.push("lavfi=[bs2b]".to_string());
-    }
-    let gain = 20.0 * (1.0 + cfg.audio_boost as f64 / 100.0).log10();
-    for (name, value) in [
-        ("af", af.join(",")),
-        ("volume-gain", format!("{gain:.2}")),
-        ("audio-channels", if cfg.downmix_stereo { "stereo" } else { "auto-safe" }.into()),
-        ("audio-samplerate", if cfg.downsample_44100 { "44100" } else { "0" }.into()),
-        ("audio-pitch-correction", if cfg.pitch_correction { "yes" } else { "no" }.into()),
-    ] {
-        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
-            eprintln!("mpv {name}={value}: {e}");
-        }
-    }
+    player::apply(ui.mpv, &player::audio_options(&ui.cfg.borrow()));
 }
 
-/// Options > Subtitles and Subtitle style, as mpv options.
+/// Options > Subtitles and Subtitle style.
 fn apply_sub_style(ui: &Ui) {
-    let c = ui.cfg.borrow();
-    let yes = |b: bool| if b { "yes" } else { "no" }.to_string();
-    for (name, value) in [
-        ("sub-font", c.sub_font.clone()),
-        ("sub-font-size", c.sub_font_size.to_string()),
-        ("sub-bold", yes(c.sub_bold)),
-        ("sub-italic", yes(c.sub_italic)),
-        ("sub-color", mpv_color(&c.sub_color)),
-        ("sub-outline-color", mpv_color(&c.sub_border_color)),
-        ("sub-outline-size", c.sub_border_size.to_string()),
-        ("sub-shadow-offset", c.sub_shadow_offset.to_string()),
-        ("sub-shadow-color", mpv_color(&c.sub_shadow_color)),
-        ("sub-border-style", if c.sub_opaque_box { "opaque-box" } else { "outline-and-shadow" }.into()),
-        ("sub-back-color", mpv_color(&c.sub_back_color)),
-        ("sub-margin-y", c.sub_margin_y.to_string()),
-        ("sub-ass-override", if c.sub_override_ass { "force" } else { "scale" }.into()),
-        ("sub-pos", if c.sub_override_placement { c.sub_pos_v.min(150) } else { 100 }.to_string()),
-    ] {
-        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
-            eprintln!("mpv {name}={value}: {e}");
-        }
-    }
-}
-
-/// MPC's next/previous audio or subtitle stream: steps through the tracks of that type, wrapping around
-/// (unlike mpv's `cycle`, never to "no track"; subtitles are turned off with On/Off instead).
-fn cycle_track(mpv: &Mpv, kind: &str, property: &str, dir: i64) {
-    let n = prop::<i64>(mpv, "track-list/count").unwrap_or(0);
-    let ids: Vec<i64> = (0..n)
-        .filter(|i| prop::<String>(mpv, &format!("track-list/{i}/type")).as_deref() == Some(kind))
-        .filter_map(|i| prop::<i64>(mpv, &format!("track-list/{i}/id")))
-        .collect();
-    if ids.is_empty() {
-        return;
-    }
-    let cur = prop::<String>(mpv, property).and_then(|s| s.parse::<i64>().ok());
-    let pos = cur.and_then(|c| ids.iter().position(|&i| i == c)).map_or(0, |p| (p as i64 + dir).rem_euclid(ids.len() as i64) as usize);
-    let _ = mpv.set_property(property, ids[pos]);
-    if let Some(title) = prop::<String>(mpv, &format!("current-tracks/{kind}/title")).or_else(|| prop::<String>(mpv, &format!("current-tracks/{kind}/lang"))) {
-        osd(mpv, &format!("{}: {title}", if kind == "audio" { "Audio" } else { "Subtitle" }));
-    }
+    player::apply(ui.mpv, &player::sub_style_options(&ui.cfg.borrow()));
 }
 
 /// Rebuild the track submenus when mpv's track list changes, and keep their radio marks current.
@@ -575,22 +491,7 @@ fn apply_settings(ui: &Ui) {
     *ui.bindings.borrow_mut() = commands::load(&ui.cfg.borrow().keys);
     apply_keys(ui);
     let cfg = ui.cfg.borrow().clone();
-    let auto = |on: bool| if on { "fuzzy" } else { "no" };
-    let langs = |s: &str| s.split([',', ' ', ';']).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(",");
-    for (name, value) in [
-        ("sub-auto", auto(cfg.autoload_subtitles).to_string()),
-        ("audio-file-auto", auto(cfg.autoload_audio).to_string()),
-        ("slang", langs(&cfg.subtitle_langs)),
-        ("alang", langs(&cfg.audio_langs)),
-    ] {
-        if let Err(e) = ui.mpv.set_property(name, value.as_str()) {
-            eprintln!("mpv {name}: {e}");
-        }
-    }
-    // MPC's color controls are -100..100, hue -180..180; mpv's are all -100..100.
-    for (name, v) in [("brightness", cfg.brightness), ("contrast", cfg.contrast), ("hue", cfg.hue * 100 / 180), ("saturation", cfg.saturation)] {
-        let _ = ui.mpv.set_property(name, v as i64);
-    }
+    player::apply(ui.mpv, &player::playback_options(&cfg));
     let custom = (!cfg.logo_file.is_empty()).then(|| gdk::Texture::from_filename(&cfg.logo_file).ok()).flatten();
     match custom {
         Some(t) => ui.logo.set_paintable(Some(&t)),
@@ -601,7 +502,6 @@ fn apply_settings(ui: &Ui) {
     apply_sub_style(ui);
     apply_video(ui);
     let _ = ui.mpv.set_property("dvbin-file", dvb::channels_file().to_string_lossy().as_ref());
-    let _ = ui.mpv.set_property("audio-delay", cfg.audio_time_shift_ms as f64 / 1000.0);
     ui.marks.set((-1, -1)); // rebuild (or drop) the chapter marks
     sync_repeat(ui);
     if !cfg.keep_history && !ui.history.borrow().recent.is_empty() {
@@ -610,21 +510,6 @@ fn apply_settings(ui: &Ui) {
     }
     refresh_recent(ui);
     relayout(ui);
-}
-
-fn prop<T: GetData>(mpv: &Mpv, name: &str) -> Option<T> {
-    mpv.get_property(name).ok()
-}
-
-fn cmd(mpv: &Mpv, name: &str, args: &[&str]) {
-    if let Err(e) = mpv.command(name, args) {
-        eprintln!("mpv {name} {args:?}: {e}");
-    }
-}
-
-fn hms(t: f64) -> String {
-    let s = t.max(0.0) as u64;
-    format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
 fn is_sub(path: &str) -> bool {
@@ -947,7 +832,7 @@ fn auto_zoom(ui: &Ui) {
 fn on_loaded(ui: &Ui) {
     // MPC resets pan & scan for each file.
     ui.pan_scan.set(PanScan::default());
-    ui.pan_scan.get().apply(ui.mpv);
+    player::apply(ui.mpv, &ui.pan_scan.get().options());
     let Some(cur) = ui.pl.borrow().current else { return };
     let (subs, audio) = ui.pl.borrow().items.get(cur).map(|e| (e.subs.clone(), e.audio.clone())).unwrap_or_default();
     for s in subs {
@@ -1200,7 +1085,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     install_icons();
     let cfg = config::load();
     let (w, h) = if cfg.remember_window_size { cfg.window_size } else { Config::default().window_size };
-    let win = gtk::ApplicationWindow::builder().application(app).title("mpc-rv").default_width(w).default_height(h).build();
+    let win = gtk::ApplicationWindow::builder().application(app).title("MPC-RV").default_width(w).default_height(h).build();
 
     // --- widgets ---
     let recent = gio::Menu::new();
@@ -1971,7 +1856,7 @@ fn sync_play_button(ui: &Ui) {
 /// MPC's title bar setting: full path, file name (or the media's own title), or just the program name.
 fn window_title(ui: &Ui, idle: bool) -> String {
     let path = ui.loaded.borrow().clone().filter(|_| !idle);
-    let Some(path) = path else { return "mpc-rv".into() };
+    let Some(path) = path else { return "MPC-RV".into() };
     let cfg = ui.cfg.borrow();
     match cfg.title_bar {
         TitleBar::FullPath => path,
@@ -1979,7 +1864,7 @@ fn window_title(ui: &Ui, idle: bool) -> String {
             let tagged = prop::<String>(ui.mpv, "metadata/by-key/title").filter(|_| cfg.title_bar_media_title);
             tagged.unwrap_or_else(|| Entry::new(path).title())
         }
-        TitleBar::NoPrefix => "mpc-rv".into(),
+        TitleBar::NoPrefix => "MPC-RV".into(),
     }
 }
 
@@ -2924,7 +2809,7 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
             gtk::AboutDialog::builder()
                 .transient_for(&win)
                 .modal(true)
-                .program_name("mpc-rv")
+                .program_name("MPC-RV")
                 .version(env!("CARGO_PKG_VERSION"))
                 .comments("An unofficial Rust rewrite inspired by Media Player Classic - Home Cinema.\nNot affiliated with the MPC-HC project. Playback by libmpv, UI by GTK4.")
                 .license_type(gtk::License::Gpl30)

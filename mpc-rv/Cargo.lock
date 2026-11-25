@@ -435,14 +435,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpc-core"
+version = "1.0.5"
+dependencies = [
+ "libmpv2",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "mpc-rv"
 version = "1.0.5"
 dependencies = [
  "gtk4",
  "libmpv2",
- "serde",
+ "mpc-core",
  "serde_json",
- "toml",
 ]
 
 [[package]]
