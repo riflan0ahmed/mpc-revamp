@@ -42,6 +42,12 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.6" date="2026-11-25">
+      <description>
+        <p>The player is now called MPC-RV. Behind the scenes, the code is split into a shared core
+          and the Linux interface, to prepare a Windows version. Playback and settings work as before.</p>
+      </description>
+    </release>
     <release version="1.0.5" date="2026-11-25">
       <description>
         <p>A GNOME-style header bar with one main menu replaces the menu bar. In a window, the
