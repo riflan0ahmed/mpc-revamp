@@ -1,4 +1,4 @@
-# Flatpak recipe for mpc-rv: one package for every Linux distro. It runs on the GNOME runtime (GTK4)
+# Flatpak recipe for MPC-RV: one package for every Linux distro. It runs on the GNOME runtime (GTK4)
 # and bundles its own libmpv, so it doesn't depend on the distro's mpv or GTK versions.
 #
 # Build the installable bundle with: packaging/build-flatpak.sh

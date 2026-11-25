@@ -1,6 +1,6 @@
 //! Settings and history: MPC's defaults, the TOML file format, and older or partial files.
 
-use mpc_rv::config::{AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom, to_text, upgrade};
+use mpc_core::config::{AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom, to_text, upgrade};
 
 #[test]
 fn defaults_match_mpc() {

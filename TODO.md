@@ -1,4 +1,4 @@
-# mpc-revamp TODO
+# MPC-RV TODO
 
 Feature parity with MPC-HC, Linux first. `[ ]` = todo, `[x]` = done.
 Each phase ends with a build that runs, then stops for review.
@@ -163,10 +163,22 @@ Each phase ends with a build that runs, then stops for review.
 - [ ] Test on KDE Plasma (Wayland and X11): look with the Breeze GTK theme, MPRIS, media keys,
       file associations, After Playback
 
-## Phase 11 — Windows port
-- [ ] Build on Windows (MSVC or MSYS2 GTK4), bundle the GTK and libmpv DLLs
-- [ ] Single instance / IPC on Windows; optionally the `WM_COPYDATA` API for compatibility
-- [ ] File associations, installer
+## Phase 11 — Windows app (native, not GTK)
+A separate frontend with a modern Windows look, sharing `mpc-core` with the Linux app.
+- [x] Split the UI-free code into the `mpc-core` crate (`mpc-rv/core/`): playlist, commands, config,
+      command line, subtitles, i18n, and `paths` in place of GLib's folder lookups
+- [x] Rename the app to MPC-RV (the command, crate, folders and app ID stay `mpc-rv`)
+- [ ] Move the mpv control code (option setup, property/command helpers) from `ui.rs` into the core
+- [ ] Check that `mpc-core` builds for Windows (`x86_64-pc-windows-msvc`), and build it in CI on a
+      Windows runner
+- [ ] New `mpc-rv/windows/` crate: Win32 window through the `windows` crate, mpv drawing into it
+      (`wid`), dark mode and Mica on Windows 11
+- [ ] Menus, key bindings and the context menu from the shared command table
+- [ ] Playlist panel, Options and the other dialogs (port from MPC-HC's `mpc-hc.rc`)
+- [ ] Single instance; optionally the `WM_COPYDATA` API (`MpcApi.h`) for compatibility
+- [ ] Settings in `%APPDATA%\mpc-rv\`, translations and shaders next to the exe
+- [ ] File associations, installer (bundles `libmpv-2.dll`)
+- [ ] Test on a real Windows 10 and 11 machine
 
 ## Dropped (Windows-only or obsolete)
 - DirectShow internal/external filter management, filter property pages

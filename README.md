@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="mpc-rv/res/icons/128.png" width="96" alt="mpc-revamp icon">
+  <img src="mpc-rv/res/icons/128.png" width="96" alt="MPC-RV icon">
 </p>
 
-<h1 align="center">mpc-revamp</h1>
+<h1 align="center">MPC-RV</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-unofficial%20rewrite-e8622a" alt="Unofficial rewrite">
@@ -13,11 +13,11 @@
 
 <p align="center">
   A media player for Linux in the spirit of Media Player Classic - Home Cinema,<br>
-  rewritten from scratch in Rust. The program is called <code>mpc-rv</code>.
+  rewritten from scratch in Rust. The command is <code>mpc-rv</code>.
 </p>
 
 > [!NOTE]
-> **mpc-revamp is a vibe-coded revamp of MPC-HC, written in Rust.** It gives you almost the same
+> **MPC-RV is a vibe-coded revamp of MPC-HC, written in Rust.** It gives you almost the same
 > experience as MPC-HC, with some small UI improvements. It's an unofficial project, not made by
 > the MPC-HC developers.
 >
@@ -56,13 +56,13 @@ flatpak install --user mpc-rv-1.0.5-x86_64.flatpak
 flatpak run io.github.mpcrv.Player /path/to/video.mkv
 ```
 
-Flatpak fetches the GNOME runtime from Flathub if you don't have it yet. After that, mpc-rv
+Flatpak fetches the GNOME runtime from Flathub if you don't have it yet. After that, MPC-RV
 shows up in your applications menu. To update, install the newer file the same way. To remove it:
 `flatpak uninstall io.github.mpcrv.Player`.
 
 > [!TIP]
 > If you just installed Flatpak for the first time, log out and back in (or restart). Until then,
-> mpc-rv doesn't show up in your applications menu and has no icon.
+> MPC-RV doesn't show up in your applications menu and has no icon.
 
 Differences in the Flatpak version:
 
@@ -70,7 +70,7 @@ Differences in the Flatpak version:
 - The JSON control socket is created inside the sandbox, so programs outside it can't reach it.
   Use MPRIS (media keys, `playerctl`) instead.
 - Options > Formats and `/regall` set file associations inside the sandbox only. The package
-  already registers mpc-rv for video and audio files, so use your desktop's "Open With" to make
+  already registers MPC-RV for video and audio files, so use your desktop's "Open With" to make
   it the default player.
 - Navigate > Tuner Scan can't run your system's `dvbv5-scan`. Run the scan in a terminal
   instead (`dvbv5-scan -o channels.conf -O ZAP <scan table>`) and copy the resulting
@@ -116,13 +116,13 @@ Install `flatpak` and `flatpak-builder`, then run from the repository root:
 packaging/build-flatpak.sh
 ```
 
-The script builds `dist/mpc-rv-<version>-x86_64.flatpak`. It bundles mpc-rv with its own libmpv
+The script builds `dist/mpc-rv-<version>-x86_64.flatpak`. It bundles MPC-RV with its own libmpv
 and FFmpeg. The first run downloads the GNOME SDK (a few GB) and compiles FFmpeg and libmpv. Later
 runs reuse that work.
 
 ## Supported formats
 
-Playback is done by mpv/FFmpeg, so mpc-revamp plays almost anything FFmpeg can decode. The extensions
+Playback is done by mpv/FFmpeg, so MPC-RV plays almost anything FFmpeg can decode. The extensions
 below are the ones it recognizes when it opens a folder, picks the next file in a folder, or sets
 up file associations (Options > Formats). A file with another extension still plays when you open
 it directly or drop it on the window.
@@ -151,22 +151,25 @@ directly).
 
 ```sh
 cd mpc-rv
-cargo test
+cargo test --workspace
 ```
 
 Unit tests sit next to the code they test (`#[cfg(test)] mod tests` at the bottom of a file) and cover
-private details. Integration tests in `mpc-rv/tests/` use the crate's public API, the way other code
-would: playlists and their file formats, subtitles, settings and history, the command line, key
-bindings, discs and TV channels, desktop integration. The app itself is a thin `main.rs` over the
-`mpc_rv` library (`src/lib.rs`), so both kinds of tests can reach the code.
+private details. Integration tests use each crate's public API, the way other code would:
+`mpc-rv/core/tests/` covers playlists and their file formats, subtitles, settings and history, the
+command line and key bindings; `mpc-rv/tests/` covers discs and TV channels, desktop integration and
+the GTK side of key bindings. The app itself is a thin `main.rs` over the `mpc_rv` library
+(`src/lib.rs`), so both kinds of tests can reach the code.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `mpc-rv/` | The Rust project (the `mpc-rv` program) |
+| `mpc-rv/` | The Rust workspace, and the GTK app in it (the `mpc-rv` program) |
+| `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations), shared with the future Windows app |
 | `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
 | `.github/workflows/` | GitHub Actions: the Flatpak release build and the Claude review |
+| `ARCHITECTURE.md` | How the code fits together: diagrams of the crates and files, for newcomers to Rust |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
 | `CLAUDE.md` | Project notes and conventions |
 
@@ -245,7 +248,7 @@ fails; run `claude setup-token` again and update the secret.
 
 ## Credits
 
-mpc-revamp follows MPC-HC's design closely, and reuses some of its GPL material:
+MPC-RV follows MPC-HC's design closely, and reuses some of its GPL material:
 
 - the command table: command IDs, names and default key bindings (`default_wmcmds`)
 - the translations (MPC-HC's PO files, 42 languages)
@@ -253,7 +256,7 @@ mpc-revamp follows MPC-HC's design closely, and reuses some of its GPL material:
 - setting names and defaults, menu layout, command line switches and the `MpcApi.h` command names
 - its "321" icon, with a yellow "REVAMP" badge added so the two players can't be confused
 
-The idle-screen logo shows that badged icon next to the program's name, mpc-rv, a "RUST REVAMP" badge and an
+The idle-screen logo shows that badged icon next to the program's name, MPC-RV, a "RUST REVAMP" badge and an
 "Unofficial Media Player Classic rewrite" line. `mpc-rv/res/make_art.py` builds both.
 
 Thanks to the MPC-HC developers and translators.
@@ -263,4 +266,4 @@ Thanks to the MPC-HC developers and translators.
 GPL-3.0-or-later, the same as MPC-HC. See [LICENSE](LICENSE).
 
 "Media Player Classic" and "MPC-HC" are used only to describe what this project is inspired by.
-mpc-revamp isn't affiliated with or endorsed by the MPC-HC project.
+MPC-RV isn't affiliated with or endorsed by the MPC-HC project.

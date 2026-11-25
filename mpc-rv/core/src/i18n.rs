@@ -25,8 +25,8 @@ fn po_dirs() -> Vec<PathBuf> {
     if let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
         dirs.push(exe_dir.join("../share/mpc-rv/po"));
     }
-    dirs.extend(gtk4::glib::system_data_dirs().iter().map(|d| d.join("mpc-rv/po")));
-    dirs.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/res/po")));
+    dirs.extend(crate::paths::system_data_dirs().iter().map(|d| d.join("mpc-rv/po")));
+    dirs.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../res/po")));
     dirs
 }
 
@@ -167,7 +167,7 @@ mod tests {
         assert_eq!(resolve("de_AT"), Some("de".into()));
         assert_eq!(resolve("pt_BR"), Some("pt_BR".into()));
         // The German PO file translates MPC's own menu text.
-        let de = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/res/po/mpc-hc.de.menus.po")).unwrap();
+        let de = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../res/po/mpc-hc.de.menus.po")).unwrap();
         assert!(parse(&de).iter().any(|(_, id, s)| id == "&File" && s == "&Datei"));
     }
 }

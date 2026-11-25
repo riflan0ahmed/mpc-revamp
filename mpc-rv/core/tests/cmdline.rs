@@ -1,6 +1,6 @@
 //! MPC's command line switches.
 
-use mpc_rv::cmdline::{CmdLine, parse};
+use mpc_core::cmdline::{CmdLine, parse};
 use std::path::Path;
 
 fn p(args: &[&str]) -> Result<CmdLine, String> {

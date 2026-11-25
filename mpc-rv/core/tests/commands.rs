@@ -1,6 +1,6 @@
 //! Key bindings: only changed bindings are stored, and they load back as they were.
 
-use mpc_rv::commands::{Binding, COMMANDS, is_dvd, load, overrides};
+use mpc_core::commands::{Binding, COMMANDS, is_dvd, load, overrides};
 use std::collections::BTreeMap;
 
 #[test]

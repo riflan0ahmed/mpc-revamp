@@ -1200,7 +1200,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     install_icons();
     let cfg = config::load();
     let (w, h) = if cfg.remember_window_size { cfg.window_size } else { Config::default().window_size };
-    let win = gtk::ApplicationWindow::builder().application(app).title("mpc-rv").default_width(w).default_height(h).build();
+    let win = gtk::ApplicationWindow::builder().application(app).title("MPC-RV").default_width(w).default_height(h).build();
 
     // --- widgets ---
     let recent = gio::Menu::new();
@@ -1971,7 +1971,7 @@ fn sync_play_button(ui: &Ui) {
 /// MPC's title bar setting: full path, file name (or the media's own title), or just the program name.
 fn window_title(ui: &Ui, idle: bool) -> String {
     let path = ui.loaded.borrow().clone().filter(|_| !idle);
-    let Some(path) = path else { return "mpc-rv".into() };
+    let Some(path) = path else { return "MPC-RV".into() };
     let cfg = ui.cfg.borrow();
     match cfg.title_bar {
         TitleBar::FullPath => path,
@@ -1979,7 +1979,7 @@ fn window_title(ui: &Ui, idle: bool) -> String {
             let tagged = prop::<String>(ui.mpv, "metadata/by-key/title").filter(|_| cfg.title_bar_media_title);
             tagged.unwrap_or_else(|| Entry::new(path).title())
         }
-        TitleBar::NoPrefix => "mpc-rv".into(),
+        TitleBar::NoPrefix => "MPC-RV".into(),
     }
 }
 
@@ -2924,7 +2924,7 @@ fn add_actions(app: &gtk::Application, ui: &Rc<Ui>) {
             gtk::AboutDialog::builder()
                 .transient_for(&win)
                 .modal(true)
-                .program_name("mpc-rv")
+                .program_name("MPC-RV")
                 .version(env!("CARGO_PKG_VERSION"))
                 .comments("An unofficial Rust rewrite inspired by Media Player Classic - Home Cinema.\nNot affiliated with the MPC-HC project. Playback by libmpv, UI by GTK4.")
                 .license_type(gtk::License::Gpl30)

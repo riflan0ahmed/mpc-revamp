@@ -1,6 +1,6 @@
 //! Subtitle files read from disk, resynced and written back (subresync bar, File > Save Subtitle).
 
-use mpc_rv::subtitles::{self, Kind};
+use mpc_core::subtitles::{self, Kind};
 use std::path::PathBuf;
 
 fn temp_dir(test: &str) -> PathBuf {

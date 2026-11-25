@@ -41,7 +41,7 @@ pub fn desktop_entry() -> String {
     let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "mpc-rv".into());
     let mimes: Vec<String> = [Kind::Video, Kind::Audio, Kind::Playlist].into_iter().flat_map(mime_types).collect();
     format!(
-        "[Desktop Entry]\nType=Application\nName=mpc-rv\nGenericName=Media Player\nComment=Unofficial Rust rewrite inspired by Media Player Classic - Home Cinema\n\
+        "[Desktop Entry]\nType=Application\nName=MPC-RV\nGenericName=Media Player\nComment=Unofficial Rust rewrite inspired by Media Player Classic - Home Cinema\n\
          Exec=\"{exe}\" %U\nIcon={APP_ID}\nTerminal=false\nCategories=AudioVideo;Audio;Video;Player;\nStartupWMClass=mpc-rv\n\
          Keywords=video;movie;music;player;mpc;\nMimeType={};\n",
         mimes.join(";")
