@@ -42,6 +42,12 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.5" date="2026-11-25">
+      <description>
+        <p>A GNOME-style header bar with one main menu replaces the menu bar. In a window, the
+          controls and mouse pointer now hide when the mouse rests. DVD options are hidden.</p>
+      </description>
+    </release>
     <release version="1.0.4" date="2026-11-25">
       <description>
         <p>The control bar stays white in every theme. Subtitles use a smaller default font size,

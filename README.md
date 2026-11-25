@@ -31,14 +31,14 @@
 
 ## Status
 
-Version 1.0.4 for Linux, under active development. See [TODO.md](TODO.md) for what's done and
+Version 1.0.5 for Linux, under active development. See [TODO.md](TODO.md) for what's done and
 what's planned.
 
 ## Install (Linux)
 
 | Package | Distributions | Status |
 |---|---|---|
-| Flatpak | Any Linux distribution | Ready (1.0.4) |
+| Flatpak | Any Linux distribution | Ready (1.0.5) |
 | AUR (`mpc-rv`) | Arch Linux, Manjaro, EndeavourOS | Coming soon (build it from this repo now) |
 | `.deb` | Debian, Ubuntu, Linux Mint | Not ready yet |
 | AppImage | Any Linux distribution | Not ready yet |
@@ -52,7 +52,7 @@ Download `mpc-rv-<version>-x86_64.flatpak` from the
 [latest release](https://github.com/riflan0ahmed/mpc-revamp/releases/latest), then install and run it:
 
 ```sh
-flatpak install --user mpc-rv-1.0.4-x86_64.flatpak
+flatpak install --user mpc-rv-1.0.5-x86_64.flatpak
 flatpak run io.github.mpcrv.Player /path/to/video.mkv
 ```
 

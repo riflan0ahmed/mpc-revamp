@@ -4,7 +4,7 @@
 # After changing this file, regenerate .SRCINFO:  makepkg --printsrcinfo > .SRCINFO
 
 pkgname=mpc-rv
-pkgver=1.0.4
+pkgver=1.0.5
 pkgrel=1
 pkgdesc='Unofficial Rust rewrite of Media Player Classic - Home Cinema, with libmpv and GTK4'
 arch=('x86_64' 'aarch64')
