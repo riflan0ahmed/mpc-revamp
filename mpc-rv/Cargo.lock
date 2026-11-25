@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "mpc-core"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "libmpv2",
  "serde",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "mpc-rv"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "gtk4",
  "libmpv2",
