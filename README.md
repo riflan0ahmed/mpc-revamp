@@ -166,6 +166,7 @@ bindings, discs and TV channels, desktop integration. The app itself is a thin `
 |---|---|
 | `mpc-rv/` | The Rust project (the `mpc-rv` program) |
 | `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
+| `.github/workflows/` | GitHub Actions: the Flatpak release build and the Claude review |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
 | `CLAUDE.md` | Project notes and conventions |
 
@@ -195,6 +196,52 @@ How to send a change:
    and published.
 
 Small, focused changes are the easiest to review.
+
+### Automatic review by Claude
+
+Every pull request is reviewed by [Claude](https://claude.com/claude-code). It leaves inline comments
+on bugs, security problems and risky dependency changes, plus one summary comment. Every Monday it
+also checks the crates for known vulnerabilities (`cargo audit`) and for newer versions, and keeps an
+issue called "Dependency report" up to date. The workflow is
+[`.github/workflows/claude-review.yml`](.github/workflows/claude-review.yml).
+
+Pull requests from forks aren't reviewed, because GitHub doesn't give a fork's workflow the secret
+it needs.
+
+**Setting it up** (once per repository, by the owner, or on your own fork). It runs on a Claude Pro or
+Max subscription, so it needs a token from your Claude account, not an API key:
+
+1. Install the Claude GitHub App on the repository: open https://github.com/apps/claude, click
+   **Install** (or **Configure**), and choose the repository.
+2. Install Claude Code if you don't have it:
+
+   ```sh
+   curl -fsSL https://claude.ai/install.sh | bash
+   ```
+
+3. Create the token. This opens your browser to sign in to your Claude account, then prints a
+   token starting with `sk-ant-oat01-`:
+
+   ```sh
+   claude setup-token
+   ```
+
+   Copy it. It's a password for your Claude account: don't commit it or paste it anywhere else.
+4. Add it to GitHub: in the repository, go to **Settings → Secrets and variables → Actions →
+   New repository secret**. Set **Name** to `CLAUDE_CODE_OAUTH_TOKEN`, paste the token into
+   **Secret**, and click **Add secret**.
+
+That's it: the next pull request gets a review. To run the dependency report now instead of
+waiting for Monday, open **Actions → Claude Review → Run workflow**.
+
+To test the setup from Claude Code, run `/test-claude-workflow` in this repository: `check` (the
+default) checks the workflow and the secret, `deps` runs the dependency report, and `pr` opens a
+throwaway pull request with a planted bug, shows Claude's review, then closes it. It needs the
+GitHub CLI (`gh auth login`).
+
+Running `/install-github-app` inside Claude Code does steps 1, 3 and 4 for you. Reviews count
+toward your subscription's usage limits. If the token expires or is revoked, the review step
+fails; run `claude setup-token` again and update the secret.
 
 ## Credits
 
