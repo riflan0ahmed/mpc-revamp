@@ -154,6 +154,32 @@ Each phase ends with a build that runs, then stops for review.
   - [ ] Decide on the icon: Flathub may ask for something more distinct than the badged MPC "321" icon
   - [ ] Open the PR to `flathub/flathub`
 
+## Website (`website/`, https://riflan0ahmed.github.io/mpc-revamp)
+- [x] Landing page: features, install steps, FAQ; search-engine basics (title and description, canonical
+      URL, Open Graph image, SoftwareApplication data, sitemap); light and dark; no scripts
+- [x] Publishing: `.github/workflows/website.yml` deploys `website/` to GitHub Pages when it changes on `main`
+- [ ] One-time setup by the owner: Settings > Pages > Source "GitHub Actions". The address follows the
+      repository name, so renaming the repo changes it (update the URLs in `website/`, the metainfo and README)
+- [ ] Add the site to Google Search Console and Bing Webmaster Tools (URL-prefix property for
+      `https://riflan0ahmed.github.io/mpc-revamp/`) and submit `sitemap.xml` there; a robots.txt only counts at the
+      domain root, so the site has none
+- [x] SEO audit fixes: title and description for MPC-HC searches, "Can I run MPC-HC on Linux?" answer,
+      maintainer and release notes in the footer, author in the structured data, smaller phone screenshot
+- [x] Keyboard shortcuts page (`/keyboard-shortcuts/`), generated from the command table by
+      `website/make_shortcuts.py`
+- [x] README links to the site
+- [ ] Website in the repo's About box (repo Settings, or `gh repo edit --homepage`)
+- [ ] List on AlternativeTo as an alternative to MPC-HC and Media Player Classic (Linux); later Flathub and the AUR
+- [ ] One launch post (r/linux, the VideoHelp "Media Player Classic for Linux" thread)
+- [ ] Later: a comparison page (MPC-RV vs VLC, mpv, SMPlayer, Celluloid), with each claim checked
+- [x] AI search: `llms.txt`, schema `featureList`/`sameAs`, a "different from VLC, mpv or SMPlayer?" answer,
+      visible "Page updated" date; every crawler is allowed (no robots.txt at the github.io root)
+- [ ] Submit the site to Brave Search (search.brave.com/submit-url; Claude's web search uses Brave)
+- [ ] GitHub repo About: description, website and topics (the same wording as the site)
+- [ ] A month after launch: ask ChatGPT, Perplexity, Claude and Google the key questions ("MPC-HC for Linux",
+      "MPC-HC alternative for Linux", "Linux video player with MPC-HC shortcuts"), 3 runs each; note who's cited
+- [ ] Update the install cards when the AUR package and the `.deb` are out
+
 ## Other desktops and distros (only tested on GNOME so far)
 - [ ] After Playback without GNOME: fall back to `org.freedesktop.ScreenSaver` (turn off the monitor)
       and KDE's `org.kde.Shutdown` / `org.kde.ksmserver` (log off) when `org.gnome.*` isn't there

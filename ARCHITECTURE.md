@@ -69,6 +69,7 @@ mpc-rv/
 └── target/        build output, made by cargo, never committed
 
 installers/        one way to install the app per folder: flatpak/, aur/, windows/
+website/           the landing page (GitHub Pages)
 ```
 
 Each crate folder has its own `Cargo.toml`. Running `cargo build`, `cargo run` or `cargo test` in

@@ -2,11 +2,11 @@
 Type=Application
 Name=MPC-RV
 GenericName=Media Player
-Comment=Unofficial Rust rewrite inspired by Media Player Classic - Home Cinema
+Comment=MPC-HC-style video player, an unofficial rewrite of Media Player Classic - Home Cinema
 Exec=mpc-rv %U
 Icon=io.github.mpcrv.Player
 Terminal=false
 Categories=AudioVideo;Audio;Video;Player;
 StartupWMClass=mpc-rv
-Keywords=video;movie;music;player;mpc;mpv;
+Keywords=video;movie;music;player;mpc;mpc-hc;media player classic;mpv;
 MimeType=video/3gpp;video/3gpp2;video/dv;video/mp2t;video/mp4;video/mpeg;video/ogg;video/quicktime;video/vnd.avi;video/webm;video/x-flv;video/x-matroska;video/x-ms-wmv;video/x-ogm+ogg;audio/AMR;audio/aac;audio/ac3;audio/basic;audio/flac;audio/midi;audio/mp2;audio/mp4;audio/mpeg;audio/ogg;audio/vnd.dts;audio/vnd.rn-realaudio;audio/vnd.wave;audio/x-aiff;audio/x-ape;audio/x-m4b;audio/x-matroska;audio/x-ms-wma;audio/x-musepack;audio/x-tak;audio/x-tta;audio/x-wavpack;application/x-cue;audio/x-mpegurl;audio/x-ms-asx;audio/x-scpls;

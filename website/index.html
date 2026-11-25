@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free MPC-HC-Style Video Player for Linux | MPC-RV</title>
+<meta name="description" content="A free, open-source video player for Linux with MPC-HC's menus, keyboard shortcuts and tools. Plays almost any format through mpv. Flatpak for any distro.">
+<link rel="canonical" href="https://riflan0ahmed.github.io/mpc-revamp/">
+<meta name="theme-color" content="#16181c">
+<link rel="icon" type="image/png" sizes="48x48" href="icon-48.png">
+<link rel="apple-touch-icon" href="icon-256.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MPC-RV">
+<meta property="og:title" content="MPC-RV: a free MPC-HC-style video player for Linux">
+<meta property="og:description" content="Free and open source. Plays almost any format, with MPC-HC's shortcuts, playlist, subtitle and audio tools.">
+<meta property="og:url" content="https://riflan0ahmed.github.io/mpc-revamp/">
+<meta property="og:image" content="https://riflan0ahmed.github.io/mpc-revamp/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The MPC-RV logo: the 321 clapperboard icon, MPC-RV, Unofficial Media Player Classic rewrite">
+<meta name="twitter:card" content="summary_large_image">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MPC-RV",
+  "description": "A free, open-source video player for Linux in the spirit of Media Player Classic - Home Cinema (MPC-HC), built on mpv and GTK4.",
+  "url": "https://riflan0ahmed.github.io/mpc-revamp/",
+  "image": "https://riflan0ahmed.github.io/mpc-revamp/mpc-rv-video-player-linux.webp",
+  "screenshot": "https://riflan0ahmed.github.io/mpc-revamp/mpc-rv-video-player-linux.webp",
+  "author": { "@type": "Person", "name": "Riflan Ahmed", "url": "https://github.com/riflan0ahmed" },
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Linux",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "downloadUrl": "https://github.com/riflan0ahmed/mpc-revamp/releases/latest",
+  "sameAs": ["https://github.com/riflan0ahmed/mpc-revamp"],
+  "featureList": ["MPC-HC default keyboard shortcuts, all remappable", "Playlists: MPC (.mpcpl), M3U, PLS, ASX, CUE", "Subtitle styling, delay and Subresync", "Volume boost up to +300%, normalization, downmix, crossfeed", "Zoom, pan and scan, rotation, 22 MPC-HC shaders", "DVD and Blu-ray folders and ISO images, audio CDs, capture devices", "MPRIS media keys", "42 languages"],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+
+<link rel="stylesheet" href="style.css">
+<link rel="alternate" type="text/plain" href="llms.txt" title="MPC-RV summary for AI assistants">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="icon-48.png" width="32" height="32" alt="">MPC-RV</a>
+    <nav>
+      <a class="optional" href="#features">Features</a>
+      <a class="optional" href="keyboard-shortcuts/">Shortcuts</a>
+      <a href="#install">Install</a>
+      <a class="optional" href="#faq">FAQ</a>
+      <a href="https://github.com/riflan0ahmed/mpc-revamp">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero wrap">
+    <h1>Media Player Classic,<br><span>now on Linux</span></h1>
+    <p class="lead">MPC-RV is a free, open-source video player with the interface, shortcuts and power
+      tools of MPC-HC. It plays almost any format through mpv and FFmpeg.</p>
+    <div class="buttons">
+      <a class="btn primary" href="https://github.com/riflan0ahmed/mpc-revamp/releases/latest">Download for Linux</a>
+      <a class="btn" href="https://github.com/riflan0ahmed/mpc-revamp">View the source</a>
+    </div>
+    <p class="note">Flatpak for any distribution · GPL-3.0 · An unofficial rewrite, not made by the MPC-HC developers</p>
+    <div class="shot">
+      <img src="mpc-rv-video-player-linux.webp" width="1280" height="767" fetchpriority="high"
+        srcset="mpc-rv-video-player-linux-640.webp 640w, mpc-rv-video-player-linux.webp 1280w"
+        sizes="(max-width: 1032px) calc(100vw - 32px), 1000px"
+        alt="The MPC-RV player window on Linux playing a video, with the seek bar, play button, volume and time at the bottom">
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Why MPC-RV</h2>
+      <p class="intro">Linux has good video players, but none of them is MPC-HC: the full menus, the keyboard
+        shortcuts you already know, and dozens of small tools for subtitles, audio and video. MPC-RV is an
+        MPC-HC alternative for Linux that brings those over, rewritten from scratch in Rust on top of mpv.</p>
+      <div class="grid">
+        <div class="card">
+          <h3>Plays almost everything</h3>
+          <p>MKV, MP4, AVI, WebM, MOV, TS, HEVC, AV1, FLAC, Opus and more: anything FFmpeg decodes. Network
+            streams, too, and hardware decoding is one switch away in Options.</p>
+        </div>
+        <div class="card">
+          <h3>MPC-HC's shortcuts</h3>
+          <p>The same default keys as MPC-HC. Every key, mouse button and wheel action can be changed in
+            Options, and media keys work through MPRIS.
+            <a href="keyboard-shortcuts/">See all keyboard shortcuts</a>.</p>
+        </div>
+        <div class="card">
+          <h3>A real playlist</h3>
+          <p>Opens and saves MPC playlists (.mpcpl), M3U, PLS and ASX, and plays CUE sheets. Shuffle, repeat, sorting,
+            and "play the next file in the folder".</p>
+        </div>
+        <div class="card">
+          <h3>Subtitle tools</h3>
+          <p>Style overrides, delay, the Subresync bar for fixing timing, and saving as SRT, WebVTT or ASS.
+            Subtitles load automatically, also from <code>subs/</code> folders.</p>
+        </div>
+        <div class="card">
+          <h3>Audio control</h3>
+          <p>Volume boost up to +300%, normalization, stereo downmix, headphone crossfeed, audio delay,
+            and speed changes with pitch correction.</p>
+        </div>
+        <div class="card">
+          <h3>Video control</h3>
+          <p>Zoom, pan &amp; scan, aspect ratios, rotation, all 22 of MPC-HC's shaders, color management,
+            display sync and frame interpolation.</p>
+        </div>
+        <div class="card">
+          <h3>Discs and devices</h3>
+          <p>DVD and Blu-ray folders and ISO images (titles and chapters), audio CDs, capture cards and
+            webcams, and DVB TV tuners (experimental).</p>
+        </div>
+        <div class="card">
+          <h3>Small things that add up</h3>
+          <p>A-B repeat, favorites, resume where you stopped, thumbnail sheets, screenshots, Go To, and
+            "after playback" actions like shutting down.</p>
+        </div>
+        <div class="card">
+          <h3>42 languages</h3>
+          <p>Menus and Options use MPC-HC's own translations, so the player speaks your language
+            from the start.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="intro">MPC-RV runs on any modern Linux distribution. A Windows version is in development.</p>
+      <div class="install">
+        <div class="card">
+          <h3>Flatpak</h3>
+          <span class="status ready">Ready · any distribution</span>
+          <p>Download the <code>.flatpak</code> file from the
+            <a href="https://github.com/riflan0ahmed/mpc-revamp/releases/latest">latest release</a>, then:</p>
+          <pre><code>flatpak install --user mpc-rv-*.flatpak
+flatpak run io.github.mpcrv.Player</code></pre>
+        </div>
+        <div class="card">
+          <h3>Arch Linux (AUR)</h3>
+          <span class="status">Coming soon to the AUR</span>
+          <p>Until then, build the package from the repository:</p>
+          <pre><code>git clone https://github.com/riflan0ahmed/mpc-revamp.git
+cd mpc-revamp/installers/aur
+makepkg -si</code></pre>
+        </div>
+        <div class="card">
+          <h3>Debian, Ubuntu, Mint</h3>
+          <span class="status">.deb coming soon</span>
+          <p>Use the Flatpak for now, or
+            <a href="https://github.com/riflan0ahmed/mpc-revamp#building-linux">build from source</a>
+            (Rust, GTK 4.12+ and libmpv).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <details>
+        <summary>Can I run MPC-HC on Linux?</summary>
+        <p>Not natively. MPC-HC is a Windows program, so on Linux it only runs through Wine, a
+          compatibility layer that its developers don't support. MPC-RV is a native Linux player that
+          rebuilds MPC-HC's menus, shortcuts and tools, with mpv doing the playback.</p>
+      </details>
+      <details>
+        <summary>How is MPC-RV different from VLC, mpv or SMPlayer?</summary>
+        <p>All of them play the same formats, because they use FFmpeg. The difference is the interface:
+          VLC has its own menus and shortcuts, mpv is deliberately minimal and keyboard-driven, and
+          SMPlayer offers an MPC-like look. MPC-RV rebuilds MPC-HC itself on top of mpv: its menus, default
+          shortcuts, playlist format, Subresync bar, pan &amp; scan and shaders.</p>
+      </details>
+      <details>
+        <summary>Is MPC-RV the official MPC-HC for Linux?</summary>
+        <p>No. MPC-RV is an unofficial, independent rewrite in Rust, not made by the MPC-HC developers. It
+          aims to give you almost the same experience as MPC-HC on Linux. If you want MPC-HC itself on
+          Windows, get it from <a href="https://github.com/clsid2/mpc-hc">clsid2/mpc-hc</a>.</p>
+      </details>
+      <details>
+        <summary>Which video formats does it play?</summary>
+        <p>Almost anything FFmpeg can decode: MKV, MP4, AVI, MOV, WebM, WMV, FLV, TS and M2TS, with H.264,
+          HEVC, VP9, AV1 and older codecs, plus most audio formats. Network streams and DVD and Blu-ray
+          folders work too. DVD and Blu-ray menus aren't supported yet; the titles play directly.</p>
+      </details>
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. MPC-RV is free and open source under the GPL-3.0-or-later license, the same license as
+          MPC-HC. There are no ads and no tracking.</p>
+      </details>
+      <details>
+        <summary>Does it work on Windows?</summary>
+        <p>Not yet. A native Windows version, with the Windows 11 look, is in development and shares
+          its core with the Linux app.</p>
+      </details>
+      <details>
+        <summary>How is it made?</summary>
+        <p>MPC-RV is written in Rust, with GTK4 for the interface and mpv for playback. Its code was written
+          with an AI coding assistant, guided and tested by its developer. Bug reports and help from people
+          who know MPC-HC, GTK or mpv are very welcome on
+          <a href="https://github.com/riflan0ahmed/mpc-revamp/issues">GitHub</a>.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>MPC-RV is free software under the GPL-3.0-or-later license ·
+      <a href="https://github.com/riflan0ahmed/mpc-revamp">Source code</a> ·
+      <a href="https://github.com/riflan0ahmed/mpc-revamp/issues">Report a bug</a></p>
+    <p>Made by <a href="https://github.com/riflan0ahmed">Riflan Ahmed</a> ·
+      <a href="https://github.com/riflan0ahmed/mpc-revamp/releases">Release notes</a></p>
+    <p>Thanks to the MPC-HC developers for the original player. MPC-RV isn't affiliated with them.</p>
+    <p>Page updated <time datetime="2026-11-25">November 25, 2026</time> · <a href="llms.txt">Summary for AI assistants</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

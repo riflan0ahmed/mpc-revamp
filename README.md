@@ -16,6 +16,8 @@
   rewritten from scratch in Rust. The command is <code>mpc-rv</code>.
 </p>
 
+<p align="center"><b>Website: <a href="https://riflan0ahmed.github.io/mpc-revamp">riflan0ahmed.github.io/mpc-revamp</a></b></p>
+
 > [!NOTE]
 > **MPC-RV is a vibe-coded revamp of MPC-HC, written in Rust.** It gives you almost the same
 > experience as MPC-HC, with some small UI improvements. It's an unofficial project, not made by
@@ -171,7 +173,8 @@ the GTK side of key bindings. The Linux app itself is a thin `main.rs` over the 
 | `mpc-rv/windows/` | The Windows app (in development; see Phase 11 in TODO.md) |
 | `mpc-rv/res/` | Icons, logo, translations, video shaders |
 | `installers/` | One folder per way to install the app: the Flatpak recipe (`flatpak/`), the AUR `PKGBUILD` (`aur/`), the Windows libmpv script (`windows/`); plus the desktop entry and AppStream metadata |
-| `.github/workflows/` | GitHub Actions: the Flatpak release build, the Windows build and the Claude review |
+| `website/` | The landing page at [riflan0ahmed.github.io/mpc-revamp](https://riflan0ahmed.github.io/mpc-revamp), published by GitHub Pages |
+| `.github/workflows/` | GitHub Actions: the Flatpak release build, the Windows build, the website and the Claude review |
 | `ARCHITECTURE.md` | How the code fits together: diagrams of the crates and files, for newcomers to Rust |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
 | `CLAUDE.md` | Project notes and conventions |
