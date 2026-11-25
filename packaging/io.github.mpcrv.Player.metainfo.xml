@@ -42,6 +42,12 @@
   </branding>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.4" date="2026-11-25">
+      <description>
+        <p>The control bar stays white in every theme. Subtitles use a smaller default font size,
+          now also for people upgrading from an earlier version.</p>
+      </description>
+    </release>
     <release version="1.0.3" date="2026-11-23">
       <description>
         <p>Subtitles use a smaller default font size.</p>

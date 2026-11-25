@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "mpc-rv"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "gtk4",
  "libmpv2",
