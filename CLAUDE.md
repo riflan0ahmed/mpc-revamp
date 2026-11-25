@@ -11,7 +11,8 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - `mpc-rv/` — the new Rust project: a Cargo workspace whose root package is the GTK app (the program
   `mpc-rv`; the app's name, as users see it, is **MPC-RV**).
   - `mpc-rv/core/` — the `mpc-core` crate: everything with no UI (playlist, commands, config, command
-    line, subtitles, i18n, paths). No GTK and no platform APIs here; it's shared with the Windows app.
+    line, subtitles, i18n, paths, and `player`: starting mpv and the settings as mpv options). No GTK and
+    no platform APIs here (mpv is fine); it's shared with the Windows app.
     The GTK crate re-exports its modules (`mpc_rv::config` etc.).
   - `mpc-rv/res/` — icons, logo, translations (PO), shaders; shared by both crates.
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.

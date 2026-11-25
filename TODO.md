@@ -168,7 +168,8 @@ A separate frontend with a modern Windows look, sharing `mpc-core` with the Linu
 - [x] Split the UI-free code into the `mpc-core` crate (`mpc-rv/core/`): playlist, commands, config,
       command line, subtitles, i18n, and `paths` in place of GLib's folder lookups
 - [x] Rename the app to MPC-RV (the command, crate, folders and app ID stay `mpc-rv`)
-- [ ] Move the mpv control code (option setup, property/command helpers) from `ui.rs` into the core
+- [x] Move the mpv control code into the core (`player`): mpv start-up, property/command helpers, the
+      settings as mpv options (audio, subtitles, video, Video Frame, Pan&Scan), track cycling
 - [ ] Check that `mpc-core` builds for Windows (`x86_64-pc-windows-msvc`), and build it in CI on a
       Windows runner
 - [ ] New `mpc-rv/windows/` crate: Win32 window through the `windows` crate, mpv drawing into it

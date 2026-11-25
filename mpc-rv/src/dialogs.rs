@@ -1,14 +1,10 @@
 //! Phase 8 dialogs and helpers: discs and capture devices, Go To, Properties, Organize Favorites and
 //! Save a Copy (MPC's `GoToDlg`, `PPageFileInfo*`, `FavoriteOrganizeDlg`, `SaveDlg`).
 
-use crate::config::Favorite;
+use crate::{config::Favorite, player::prop};
 use gtk4::{self as gtk, gio, glib, prelude::*};
 use libmpv2::Mpv;
 use std::{cell::RefCell, path::Path, rc::Rc};
-
-fn prop<T: libmpv2::GetData>(mpv: &Mpv, name: &str) -> Option<T> {
-    mpv.get_property(name).ok()
-}
 
 fn hms(t: f64) -> String {
     let ms = (t.max(0.0) * 1000.0).round() as u64;

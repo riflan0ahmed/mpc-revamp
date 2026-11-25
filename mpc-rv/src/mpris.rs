@@ -1,7 +1,7 @@
 //! MPRIS D-Bus service: media keys, desktop media widgets and tools like playerctl can see and control
 //! the player (play state, metadata, position and seeking, volume, rate, loop and shuffle, open URI).
 
-use crate::commands::Media;
+use crate::{commands::Media, player::prop};
 use gtk4::{self as gtk, gio, glib, prelude::*};
 use libmpv2::Mpv;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -67,10 +67,6 @@ pub struct PlayerState {
 pub struct Mpris {
     conn: Option<gio::DBusConnection>,
     status: Rc<RefCell<&'static str>>,
-}
-
-fn prop<T: libmpv2::GetData>(mpv: &Mpv, name: &str) -> Option<T> {
-    mpv.get_property(name).ok()
 }
 
 /// MPRIS metadata for the playing file.

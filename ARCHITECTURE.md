@@ -33,6 +33,7 @@ flowchart TB
     windows -.-> core
     linux --> gtk
     linux --> mpv
+    core --> mpv
     core --> serde
 
     classDef app fill:#e4e9fb,stroke:#3554c4,color:#1b1f27
@@ -45,7 +46,8 @@ flowchart TB
     class windows planned
 ```
 
-An arrow means "uses". The arrows only point down: the core never uses the app, GTK or mpv.
+An arrow means "uses". The arrows only point down: the core never uses the app or GTK. Both layers
+use mpv: the core starts it and sends it the settings, the app draws its video into the window.
 
 ## The folders
 
@@ -54,11 +56,11 @@ mpc-rv/
 ├── Cargo.toml     workspace + the app crate's settings (the version number lives here)
 ├── Cargo.lock     exact library versions
 ├── src/           the Linux app (crate mpc-rv)
-├── tests/         tests for the app: discs, desktop entry, view, keys
+├── tests/         tests for the app: discs, desktop entry, keys
 ├── core/
 │   ├── Cargo.toml the core crate's settings
 │   ├── src/       shared code (crate mpc-core)
-│   └── tests/     tests for playlist, settings, commands, command line, subtitles
+│   └── tests/     tests for playlist, settings, commands, command line, subtitles, mpv options
 ├── res/           icons, logo, translations (po/), video shaders
 └── target/        build output, made by cargo, never committed
 ```
@@ -100,7 +102,7 @@ flowchart TB
 ### How the app uses the core
 
 Each app file on top, the core files it uses below. Inside the core, `config.rs` uses `commands.rs`
-(for key bindings) and `paths.rs`, and `i18n.rs` uses `paths.rs`.
+(for key bindings) and `paths.rs`, `i18n.rs` uses `paths.rs`, and `player.rs` uses `config.rs`.
 
 ```mermaid
 flowchart TB
@@ -125,22 +127,25 @@ flowchart TB
         playlist["playlist.rs"]
         subtitles["subtitles.rs"]
         paths["paths.rs"]
+        player["player.rs"]
     end
 
-    main --> cmdline & config & i18n
-    ui --> cmdline & commands & config & i18n & playlist
+    main --> cmdline & config & i18n & player
+    ui --> cmdline & commands & config & i18n & playlist & player
     options --> commands & config & i18n
     dialogs & dvb & view & shaders --> config
+    dialogs & mpris & subresync & view --> player
     mpris --> commands
     integration & playlistbar --> playlist
     subresync --> subtitles
     config --> commands & paths
     i18n --> paths
+    player --> config
 
     classDef app fill:#e4e9fb,stroke:#3554c4,color:#1b1f27
     classDef shared fill:#e0f2ef,stroke:#0d7a70,color:#1b1f27
     class main,ui,options,dialogs,dvb,view,shaders,mpris,integration,playlistbar,subresync app
-    class cmdline,commands,config,i18n,playlist,subtitles,paths shared
+    class cmdline,commands,config,i18n,playlist,subtitles,paths,player shared
 ```
 
 `video.rs` and `remote.rs` use no core files.
@@ -151,10 +156,10 @@ flowchart TB
 
 | File | What it does | Outside libraries |
 |---|---|---|
-| `main.rs` | Where the program starts. Reads the command line, handles the file-association switches, starts mpv and loads the translations, then hands over to `ui.rs`. If MPC-RV is already open, it passes your file to that window instead of opening a second one. | gtk4, libmpv2 |
+| `main.rs` | Where the program starts. Reads the command line, handles the file-association switches, starts mpv (through `player.rs`) and loads the translations, then hands over to `ui.rs`. If MPC-RV is already open, it passes your file to that window instead of opening a second one. | gtk4, libmpv2 |
 | `ui.rs` | The main window and nearly everything you click: menu bar, video area, seek bar, toolbar, status bars. Connects every menu item and key to what it does. By far the biggest file. | gtk4, libmpv2, serde_json |
 | `video.rs` | The video picture: a GTK drawing area (GLArea) that mpv paints each frame into, through OpenGL. | gtk4, libmpv2 |
-| `view.rs` | View menu: zoom, video frame, Pan & Scan; and File › Save Thumbnails. Turns MPC's options into mpv settings. | gtk4, libmpv2 |
+| `view.rs` | View › Zoom (resizes the window around the video) and File › Save Thumbnails. | gtk4, libmpv2 |
 | `dialogs.rs` | The smaller dialogs: Open Disc/Device, Go To, Properties, Organize Favorites, Save a Copy. | gtk4, libmpv2 |
 | `options.rs` | The Options window: a tree of pages on the left, that page's settings on the right. | gtk4 |
 | `playlistbar.rs` | The playlist panel beside the video: right-click menu, drag to reorder, Delete to remove, double-click to play. | gtk4 |
@@ -176,6 +181,7 @@ flowchart TB
 | `playlist.rs` | The playlist itself: items, shuffle and repeat, playlist files (`.mpcpl`, `.m3u`, `.pls`, `.asx`, `.cue`), next file in a folder. | none |
 | `subtitles.rs` | Reads and writes subtitle timings (SRT, WebVTT, ASS) for the Subresync bar. mpv does the actual subtitle drawing. | none |
 | `paths.rs` | Finds your folders: settings (`~/.config`), Pictures, system data. Replaces GTK's version so the core needs no GTK. | none |
+| `player.rs` | Talks to mpv: starts it with MPC's defaults, turns the settings (audio, subtitles, video, Video Frame, Pan & Scan) into mpv options, and has the small helpers every file uses to read and set mpv properties. | libmpv2 |
 
 ## What happens when you open a movie
 
@@ -183,7 +189,7 @@ Running `mpc-rv movie.mp4`, in order:
 
 1. **`main.rs` + `cmdline.rs`:** the command line is read: file names and switches such as
    `/fullscreen`. File-association switches like `/regvid` are handled right here, by `integration.rs`.
-2. **`main.rs` + libmpv2:** mpv is started with MPC's defaults (stay on the last frame, volume
+2. **`main.rs` + `player.rs`:** mpv is started with MPC's defaults (stay on the last frame, volume
    limits, subtitle folders). It lives until the program closes.
 3. **`config.rs` + `i18n.rs`:** settings are loaded from `~/.config/mpc-rv/config.toml`, and the
    menus' language is picked.
@@ -203,6 +209,7 @@ Running `mpc-rv movie.mp4`, in order:
 |---|---|
 | A default keyboard shortcut or mouse action | `mpc-rv/core/src/commands.rs` |
 | A setting's default value | `mpc-rv/core/src/config.rs` |
+| How a setting is passed to mpv | `mpc-rv/core/src/player.rs` |
 | A menu item, or what a command does | `mpc-rv/src/ui.rs` |
 | A page in the Options window | `mpc-rv/src/options.rs` |
 | Playlist file formats (`.m3u`, `.pls`, ...) | `mpc-rv/core/src/playlist.rs` |
