@@ -154,6 +154,15 @@ Each phase ends with a build that runs, then stops for review.
   - [ ] Decide on the icon: Flathub may ask for something more distinct than the badged MPC "321" icon
   - [ ] Open the PR to `flathub/flathub`
 
+## Other desktops and distros (only tested on GNOME so far)
+- [ ] After Playback without GNOME: fall back to `org.freedesktop.ScreenSaver` (turn off the monitor)
+      and KDE's `org.kde.Shutdown` / `org.kde.ksmserver` (log off) when `org.gnome.*` isn't there
+- [ ] Hide or disable the After Playback items the desktop can't do (e.g. no systemd-logind on Void,
+      Alpine or Devuan) instead of letting them fail silently
+- [ ] Check that keeping the screen on during video works outside GNOME (portal / KDE)
+- [ ] Test on KDE Plasma (Wayland and X11): look with the Breeze GTK theme, MPRIS, media keys,
+      file associations, After Playback
+
 ## Phase 11 — Windows port
 - [ ] Build on Windows (MSVC or MSYS2 GTK4), bundle the GTK and libmpv DLLs
 - [ ] Single instance / IPC on Windows; optionally the `WM_COPYDATA` API for compatibility

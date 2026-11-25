@@ -1199,8 +1199,12 @@ fn refresh_recent(ui: &Ui) {
 fn install_icons() {
     // Frame step: a play arrow followed by a bar, like MPC's toolbar.
     const FRAME_STEP: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path d="M2.5 2.5v11l8-5.5z" fill="#2e3436"/><rect x="11.5" y="2.5" width="2.5" height="11" rx="0.6" fill="#2e3436"/></svg>"##;
+    // Muted: a speaker and an X, all solid. Themes draw part of their muted icon half transparent,
+    // which looks dimmed on the white control bar.
+    const MUTED: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path d="M1 5.5h2.5L7.5 2v12l-4-3.5H1z" fill="#2e3436"/><rect x="9" y="7.25" width="6.5" height="1.5" rx="0.75" transform="rotate(45 12.25 8)" fill="#2e3436"/><rect x="9" y="7.25" width="6.5" height="1.5" rx="0.75" transform="rotate(-45 12.25 8)" fill="#2e3436"/></svg>"##;
     let dir = glib::user_runtime_dir().join("mpc-rv-icons");
-    if std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join("mpc-frame-step-symbolic.svg"), FRAME_STEP)).is_ok()
+    let write = |name: &str, svg: &str| std::fs::write(dir.join(format!("{name}.svg")), svg);
+    if std::fs::create_dir_all(&dir).and_then(|_| write("mpc-frame-step-symbolic", FRAME_STEP)).and_then(|_| write("mpc-volume-muted-symbolic", MUTED)).is_ok()
         && let Some(display) = gdk::Display::default()
     {
         gtk::IconTheme::for_display(&display).add_search_path(&dir);
@@ -1268,24 +1272,26 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     controls.append(&spacer);
     let fs_button = button("view-fullscreen-symbolic", "win.view-fullscreen", "Fullscreen");
     // The panel over the video: white controls on a fade, the played part of the bars solid white
-    // and the rest faint. The open menu bar item is underlined in the text color (white on a dark
+    // and the rest faint, the same in every theme and state. Its rules select it by name
+    // (#mpc-panel): GTK ranks rules by specificity before priority, so plain class rules would lose
+    // to the theme's (e.g. Yaru's `button:backdrop.flat:checked`, a grey box behind Mute). The open menu bar item is underlined in the text color (white on a dark
     // theme), not the theme's accent (Ubuntu's orange).
     let css = gtk::CssProvider::new();
     css.load_from_string(
-        ".mpc-panel { background-image: linear-gradient(to bottom, transparent, alpha(black, 0.6)); padding-top: 24px; color: white; }\n\
-         .mpc-panel button { color: white; min-width: 32px; min-height: 32px; }\n\
-         .mpc-panel button:hover { background-color: alpha(white, 0.15); }\n\
-         .mpc-panel button:disabled { color: alpha(white, 0.4); }\n\
-         .mpc-panel scale > trough { background-color: alpha(white, 0.3); border: none; }\n\
-         .mpc-panel scale > trough > highlight { background-color: white; border: none; margin: 0; }\n\
-         .mpc-panel scale > trough > slider { background-color: white; border: none; box-shadow: none; min-width: 12px; min-height: 12px; margin: -5px; }\n\
-         .mpc-seek { padding: 6px 12px 0 12px; }\n\
-         .mpc-seek > trough { min-height: 3px; }\n\
-         .mpc-seek:hover > trough { min-height: 5px; }\n\
-         .mpc-seek > trough > slider { opacity: 0; transition: opacity 150ms; }\n\
-         .mpc-seek:hover > trough > slider { opacity: 1; }\n\
-         .mpc-controls { padding: 2px 6px 4px 6px; }\n\
-         .mpc-time { margin-left: 8px; font-size: 0.95em; }\n\
+        "#mpc-panel { background-image: linear-gradient(to bottom, transparent, alpha(black, 0.6)); padding-top: 24px; color: white; }\n\
+         #mpc-panel button { color: white; background: none; border-color: transparent; box-shadow: none; outline: none; min-width: 32px; min-height: 32px; }\n\
+         #mpc-panel button:hover { background: alpha(white, 0.15); }\n\
+         #mpc-panel button:disabled { color: alpha(white, 0.4); }\n\
+         #mpc-panel scale > trough { background: alpha(white, 0.3); border: none; box-shadow: none; outline: none; }\n\
+         #mpc-panel scale > trough > highlight { background: white; border: none; box-shadow: none; margin: 0; }\n\
+         #mpc-panel scale > trough > slider { background: white; border: none; box-shadow: none; outline: none; min-width: 12px; min-height: 12px; margin: -5px; }\n\
+         #mpc-panel .mpc-seek { padding: 6px 12px 0 12px; }\n\
+         #mpc-panel .mpc-seek > trough { min-height: 3px; }\n\
+         #mpc-panel .mpc-seek:hover > trough { min-height: 5px; }\n\
+         #mpc-panel .mpc-seek > trough > slider { opacity: 0; transition: opacity 150ms; }\n\
+         #mpc-panel .mpc-seek:hover > trough > slider { opacity: 1; }\n\
+         #mpc-panel .mpc-controls { padding: 2px 6px 4px 6px; }\n\
+         #mpc-panel .mpc-time { margin-left: 8px; font-size: 0.95em; }\n\
          menubar > item:selected { color: @theme_fg_color; box-shadow: inset 0 -3px @theme_fg_color; }",
     );
     gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -1362,7 +1368,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     win.set_child(Some(&vbox));
     // The seek bar, controls and status are in a panel over the bottom of the video, as in web
     // players: it slides up while the mouse is in use (and while paused in a window).
-    let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).css_classes(["mpc-panel"]).build();
+    let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).name("mpc-panel").build();
     for w in [seek.upcast_ref::<gtk::Widget>(), controls.upcast_ref(), status.upcast_ref()] {
         fs_panel.append(w);
     }
@@ -1627,7 +1633,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     });
     mute.connect_toggled(move |b| {
         let _ = mpv.set_property("mute", b.is_active());
-        b.set_icon_name(if b.is_active() { "audio-volume-muted-symbolic" } else { "audio-volume-high-symbolic" });
+        b.set_icon_name(if b.is_active() { "mpc-volume-muted-symbolic" } else { "audio-volume-high-symbolic" });
     });
 
     // --- mouse on video: buttons and wheel run their bound commands (MPC's CMouse::OnButton) ---
