@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build mpc-rv as a Flatpak and package it into one installable file, dist/mpc-rv-<version>-x86_64.flatpak.
 #
-#   packaging/build-flatpak.sh            (from the repository root)
+#   installers/build-flatpak.sh            (from the repository root)
 #
 # Needs flatpak and flatpak-builder. The first run downloads the GNOME runtime and SDK (a few GB)
 # and builds libmpv and FFmpeg, which takes a while; later runs reuse that work.
@@ -10,7 +10,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 APP=io.github.mpcrv.Player
-MANIFEST=packaging/flatpak/$APP.yml
+MANIFEST=installers/flatpak/$APP.yml
 WORK=.flatpak-build # build folders (gitignored)
 
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo

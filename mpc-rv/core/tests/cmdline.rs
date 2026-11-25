@@ -9,10 +9,12 @@ fn p(args: &[&str]) -> Result<CmdLine, String> {
 
 #[test]
 fn switches() {
-    let c = p(&["a.mkv", "/play", "-fullscreen", "--sub", "s.srt", "/START", "1500", "/viewpreset", "2", "/home/x.mkv"]).unwrap();
-    assert_eq!(c.files, ["/cwd/a.mkv", "/home/x.mkv"]);
+    let in_cwd = |name: &str| Path::new("/cwd").join(name).to_string_lossy().into_owned();
+    let absolute = if cfg!(windows) { r"C:\home\x.mkv" } else { "/home/x.mkv" };
+    let c = p(&["a.mkv", "/play", "-fullscreen", "--sub", "s.srt", "/START", "1500", "/viewpreset", "2", absolute]).unwrap();
+    assert_eq!(c.files, [in_cwd("a.mkv"), absolute.into()]);
     assert!(c.play && c.fullscreen);
-    assert_eq!(c.subs, ["/cwd/s.srt"]);
+    assert_eq!(c.subs, [in_cwd("s.srt")]);
     assert_eq!(c.start, Some(1.5));
     assert_eq!(c.viewpreset, Some(2));
     assert_eq!(p(&["/startpos", "1:02:03"]).unwrap().start, Some(3723.0));
@@ -21,7 +23,11 @@ fn switches() {
     assert_eq!(p(&["/dvd", "/monitor", "2"]).unwrap().ignored, ["/dvd", "/monitor"]);
     assert_eq!(p(&["/regall", "/webport", "8080"]).unwrap().register, (true, true, true));
     assert_eq!(p(&["/webport", "8080"]).unwrap().ignored, ["/webport"]);
-    assert!(p(&["/frobnicate"]).unwrap().files == ["/frobnicate"], "unknown /name is a path");
+    if cfg!(windows) {
+        assert!(p(&["/frobnicate"]).is_err(), "unknown /name is an error, as in MPC");
+    } else {
+        assert!(p(&["/frobnicate"]).unwrap().files == ["/frobnicate"], "unknown /name is a path");
+    }
     assert!(p(&["-frobnicate"]).is_err());
     assert!(p(&["/sub"]).is_err());
     assert!(p(&["https://x/y.mp4"]).unwrap().files == ["https://x/y.mp4"]);

@@ -6,7 +6,7 @@
 # so nothing is released.
 # Can also be run by hand from the Actions tab: leave the tag empty to release the version on main, or
 # give an existing tag to rebuild its bundle (e.g. for a release that's already out).
-# Same recipe as packaging/build-flatpak.sh: packaging/flatpak/io.github.mpcrv.Player.yml.
+# Same recipe as installers/build-flatpak.sh: installers/flatpak/io.github.mpcrv.Player.yml.
 name: Release Flatpak
 
 on:
@@ -73,9 +73,9 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         if: env.SKIP != '1'
         with:
-          manifest-path: packaging/flatpak/io.github.mpcrv.Player.yml
+          manifest-path: installers/flatpak/io.github.mpcrv.Player.yml
           bundle: ${{ env.BUNDLE }}
-          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.mpcrv.Player.yml') }}
+          cache-key: flatpak-builder-${{ hashFiles('installers/flatpak/io.github.mpcrv.Player.yml') }}
 
       # Creates the release, and the tag on COMMIT if it doesn't exist yet.
       - uses: softprops/action-gh-release@v3

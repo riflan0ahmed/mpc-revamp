@@ -17,8 +17,8 @@ fn natural_order() {
 fn formats_roundtrip() {
     let dir = std::env::temp_dir().join(format!("mpc-rv-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let d = dir.to_string_lossy();
-    let mut a = Entry::new(format!("{d}/a b.mkv"));
+    let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    let mut a = Entry::new(at("a b.mkv"));
     a.label = Some("First".into());
     a.duration = Some(61.0);
     let b = Entry::new("https://example.com/s.mp3");
@@ -31,9 +31,9 @@ fn formats_roundtrip() {
     }
     // All files local to the playlist folder: stored relative, read back absolute.
     let file = dir.join("local.mpcpl");
-    playlist::save(&file, &[Entry::new(format!("{d}/x.mkv"))]).unwrap();
+    playlist::save(&file, &[Entry::new(at("x.mkv"))]).unwrap();
     assert!(std::fs::read_to_string(&file).unwrap().contains("1,filename,x.mkv"));
-    assert_eq!(paths(&playlist::load(&file).unwrap()), [format!("{d}/x.mkv").as_str()]);
+    assert_eq!(paths(&playlist::load(&file).unwrap()), [at("x.mkv").as_str()]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -454,6 +454,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpc-rv-windows"
+version = "1.0.6"
+dependencies = [
+ "libmpv2",
+ "mpc-core",
+]
+
+[[package]]
 name = "pango"
 version = "0.22.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

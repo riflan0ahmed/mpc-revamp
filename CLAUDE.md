@@ -8,28 +8,39 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - `mpc-hc-develop/` — the original C++/MFC/DirectShow source. **Reference only. Never edit it.**
   It's gitignored (see README for how to get it). Its submodules (LAV Filters, MediaInfo, sanear, ...)
   are empty and not needed.
-- `mpc-rv/` — the new Rust project: a Cargo workspace whose root package is the GTK app (the program
-  `mpc-rv`; the app's name, as users see it, is **MPC-RV**).
-  - `mpc-rv/core/` — the `mpc-core` crate: everything with no UI (playlist, commands, config, command
-    line, subtitles, i18n, paths, and `player`: starting mpv and the settings as mpv options). No GTK and
-    no platform APIs here (mpv is fine); it's shared with the Windows app.
-    The GTK crate re-exports its modules (`mpc_rv::config` etc.).
-  - `mpc-rv/res/` — icons, logo, translations (PO), shaders; shared by both crates.
+- `mpc-rv/` — the new Rust project, a monorepo-style Cargo workspace (the app's name, as users see it,
+  is **MPC-RV**). The root `Cargo.toml` only lists the members and holds the version.
+  - `mpc-rv/core/` — the `mpc-core` crate, shared by both apps: everything with no UI (playlist,
+    commands, config, command line, subtitles, i18n, paths, and `player`: starting mpv and the settings
+    as mpv options). No GTK, no Win32 and no window code here (mpv is fine). Where Linux and Windows
+    differ, keep it to a small, tested `cfg!(windows)`.
+  - `mpc-rv/linux/` — the `mpc-rv` crate: the Linux app (GTK4), the program `mpc-rv`. It re-exports
+    the core's modules (`mpc_rv::config` etc.).
+  - `mpc-rv/windows/` — the `mpc-rv-windows` crate: the Windows app. On Linux it builds as a stub.
+  - `mpc-rv/res/` — icons, logo, translations (PO), shaders; shared.
+  - `cargo build`/`run`/`test` in `mpc-rv/` cover the core and the Linux app (`default-members`).
+- `installers/` — one folder per way to install the app: `flatpak/`, `aur/`, `windows/` (later `debian/`,
+  `appimage/`).
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
 - `ARCHITECTURE.md` — diagrams of how the crates and files connect, for readers new to Rust. Update it
   when a source file is added, removed or moved, or when one starts or stops using another.
 - Tests: unit tests inline (`#[cfg(test)] mod tests`) for private details; integration tests in
-  `mpc-rv/core/tests/` for the `mpc_core` library and `mpc-rv/tests/` for the `mpc_rv` library
-  (`src/lib.rs`; `main.rs` stays thin). Run them all with `cargo test --workspace`.
+  `mpc-rv/core/tests/` for the `mpc_core` library and `mpc-rv/linux/tests/` for the `mpc_rv` library
+  (`linux/src/lib.rs`; `main.rs` stays thin). Run them all with `cargo test --workspace`.
+- A core change must keep both apps building: check Linux with `cargo clippy --workspace --all-targets`
+  and Windows with `cargo clippy -p mpc-core -p mpc-rv-windows --all-targets --target x86_64-pc-windows-msvc`;
+  CI (`.github/workflows/windows.yml`) runs the core's tests on Windows.
 
 ## Stack
 
 - **Playback:** libmpv through the `libmpv2` crate. Use mpv for decoding, rendering, subtitles,
   audio filters, DVD/Blu-ray and capture. Don't reimplement anything mpv already does.
 - **UI (Linux):** GTK4 (`gtk4-rs`). Video is drawn into a `GLArea` with mpv's OpenGL render API.
-- **UI (Windows, planned):** a native Win32 app through the `windows` crate (Windows 11 look: dark mode,
-  Mica), in its own workspace crate on top of `mpc-core`; mpv draws straight into the window (`wid`).
-  Not GTK on Windows. See Phase 11 in TODO.md.
+- **UI (Windows):** a native Win32 app through the `windows` crate (Windows 11 look: dark mode,
+  Mica), in `mpc-rv/windows/` on top of `mpc-core`; mpv draws straight into the window (`wid`).
+  Not GTK on Windows. See Phase 11 in TODO.md. Toolchain: Rust's MSVC target, linked against a pinned
+  libmpv build (`installers/windows/get-mpv.ps1`). From Linux, the clippy command above catches Windows
+  compile errors (it can't link or run there; CI does that).
 - **Config:** a TOML file in `$XDG_CONFIG_HOME/mpc-rv/` (via `serde` + `toml`). User folders come from
   `mpc_core::paths` (same results as GLib on Linux), not GLib, so the core stays GTK-free.
 - **IPC:** MPRIS/D-Bus on Linux, which replaces MPC's `WM_COPYDATA` API (`MpcApi.h`).
@@ -87,11 +98,11 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
 - Only the admin (the repository owner) merges into `release/*` and `main`, after checking the work.
   Contributors open pull requests against the current `release/*` branch, never `main`.
 - Merges use merge commits (`git merge --no-ff`), so each sub-branch and each release shows as one unit.
-- Releasing: bump the version on the release branch (`mpc-rv/Cargo.toml`, `Cargo.lock`, the metainfo
-  `<release>`, `packaging/aur/PKGBUILD` and `.SRCINFO`), then merge it into `main` (pull request or
+- Releasing: bump the version on the release branch (`mpc-rv/Cargo.toml` `[workspace.package]`, `Cargo.lock`, the metainfo
+  `<release>`, `installers/aur/PKGBUILD` and `.SRCINFO`), then merge it into `main` (pull request or
   local merge + push). The "Release Flatpak" GitHub Action (`.github/workflows/release-flatpak.yml`) runs
   on every push to `main`: it creates the tag `v<version>` and its GitHub release if they don't exist
   yet, builds the Flatpak and attaches it. No tag needs to be pushed by hand. A push to `main` without a
   version bump releases nothing.
-  `packaging/build-flatpak.sh` builds the same bundle locally.
+  `installers/build-flatpak.sh` builds the same bundle locally.
 - Ask before every commit, merge, tag and push.

@@ -1,0 +1,11 @@
+[package]
+name = "mpc-rv-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Media Player Classic - Home Cinema, rewritten in Rust for Windows"
+
+# Only on Windows: elsewhere the program is a stub, so `cargo test --workspace` works on Linux too.
+[target.'cfg(windows)'.dependencies]
+mpc-core = { path = "../core" }
+libmpv2 = "7.0.1"

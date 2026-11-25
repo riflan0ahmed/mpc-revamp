@@ -1,7 +1,7 @@
 # Flatpak recipe for MPC-RV: one package for every Linux distro. It runs on the GNOME runtime (GTK4)
 # and bundles its own libmpv, so it doesn't depend on the distro's mpv or GTK versions.
 #
-# Build the installable bundle with: packaging/build-flatpak.sh
+# Build the installable bundle with: installers/build-flatpak.sh
 app-id: io.github.mpcrv.Player
 runtime: org.gnome.Platform
 runtime-version: '51'
@@ -107,8 +107,8 @@ modules:
     build-commands:
       - cargo build --release --locked
       - install -Dm755 target/release/mpc-rv /app/bin/mpc-rv
-      - install -Dm644 packaging/io.github.mpcrv.Player.desktop /app/share/applications/io.github.mpcrv.Player.desktop
-      - install -Dm644 packaging/io.github.mpcrv.Player.metainfo.xml /app/share/metainfo/io.github.mpcrv.Player.metainfo.xml
+      - install -Dm644 installers/io.github.mpcrv.Player.desktop /app/share/applications/io.github.mpcrv.Player.desktop
+      - install -Dm644 installers/io.github.mpcrv.Player.metainfo.xml /app/share/metainfo/io.github.mpcrv.Player.metainfo.xml
       - for s in 48 128 256; do install -Dm644 res/icons/$s.png /app/share/icons/hicolor/${s}x${s}/apps/io.github.mpcrv.Player.png; done
       - mkdir -p /app/share/mpc-rv/po && cp res/po/*.po /app/share/mpc-rv/po/
     sources:
@@ -117,7 +117,7 @@ modules:
         skip: [target]
       - type: file
         path: ../io.github.mpcrv.Player.desktop
-        dest: packaging
+        dest: installers
       - type: file
         path: ../io.github.mpcrv.Player.metainfo.xml
-        dest: packaging
+        dest: installers

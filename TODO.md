@@ -131,11 +131,11 @@ Each phase ends with a build that runs, then stops for review.
       the transport stream (and a tuner to develop it with)
 
 ## Packaging (Linux)
-- [x] Flatpak bundle on GitHub Releases (`packaging/build-flatpak.sh`, GNOME 51 runtime, bundled
+- [x] Flatpak bundle on GitHub Releases (`installers/build-flatpak.sh`, GNOME 51 runtime, bundled
       libmpv 0.41 and FFmpeg 7.1)
 - [x] GitHub Action: merging a version bump into `main` tags `v<version>`, builds the Flatpak and
       attaches it to the release (`.github/workflows/release-flatpak.yml`; can also be run by hand)
-- [ ] AUR: `packaging/aur/PKGBUILD` is built and tested in an Arch container; upload it once AUR
+- [ ] AUR: `installers/aur/PKGBUILD` is built and tested in an Arch container; upload it once AUR
       registration reopens, then switch the README to `yay -S mpc-rv`
 - [ ] `.deb`: build on Ubuntu 24.04 (podman container) for wide coverage. Needs fallbacks for mpv
       older than 0.38 (`volume-gain`, `sub-outline-*` were `sub-border-*`, no `sub-border-style`).
@@ -168,22 +168,29 @@ A separate frontend with a modern Windows look, sharing `mpc-core` with the Linu
 steps; each ends with something that builds and runs, then stops for review. From 11.2 on, every step
 needs testing on a real Windows machine.
 
-### 11.1 — Core ready for Windows
+### 11.1 — Core and layout ready for Windows
 - [x] Split the UI-free code into the `mpc-core` crate (`mpc-rv/core/`): playlist, commands, config,
       command line, subtitles, i18n, and `paths` in place of GLib's folder lookups
 - [x] Rename the app to MPC-RV (the command, crate, folders and app ID stay `mpc-rv`)
 - [x] Move the mpv control code into the core (`player`): mpv start-up, property/command helpers, the
       settings as mpv options (audio, subtitles, video, Video Frame, Pan&Scan), track cycling
-- [ ] Decide how to link libmpv on Windows (`libmpv-2.dll` and its import library, e.g. from the
-      shinchiro mpv-winbuild builds) and the toolchain (`x86_64-pc-windows-msvc` or `-gnu`)
-- [ ] `mpc-core` builds and its tests pass for Windows, in CI on a GitHub Windows runner
+- [x] Toolchain and libmpv: Rust's MSVC toolchain (`x86_64-pc-windows-msvc`) and shinchiro's
+      mpv-winbuild build pinned to 20261111; `installers/windows/get-mpv.ps1` downloads it, checks
+      its checksum and makes `mpv.lib` from the DLL's exports
+- [x] Core behaves the Windows way: `/name` is always a switch (as in MPC), playlist paths keep `\`,
+      `file:///C:/x` URLs; the tests no longer assume `/` paths
+- [x] Monorepo layout: `mpc-rv/` holds `core/`, `linux/` (the GTK app, moved from `mpc-rv/src/`) and
+      `windows/`; `installers/` has one folder per way of shipping
+- [x] `mpc-rv/windows/` starter app: plays the command line's files in mpv's own window with the
+      user's settings (a stub on Linux)
+- [ ] CI on a GitHub Windows runner passes: core tests and the Windows app build
+      (`.github/workflows/windows.yml`)
 
 ### 11.2 — Video plays
-- [ ] New `mpc-rv/windows/` crate: a Win32 window through the `windows` crate, mpv drawing into it
-      (`wid`), opening the file from the command line
+- [ ] A Win32 window through the `windows` crate in `mpc-rv/windows/`, mpv drawing into it (`wid`)
+      instead of its own window
 - [ ] Windows 11 look: dark title bar following the system theme, Mica background; plain fallback
       on Windows 10
-- [ ] Windows CI builds the app
 
 ### 11.3 — Controls
 - [ ] Menu bar and context menu from the shared command table, with translations

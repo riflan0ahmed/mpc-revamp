@@ -40,5 +40,5 @@ check() {
 
 package() {
     cd mpc-revamp
-    sh packaging/install.sh mpc-rv/target/release/mpc-rv "$pkgdir/usr"
+    sh installers/install.sh mpc-rv/target/release/mpc-rv "$pkgdir/usr"
 }

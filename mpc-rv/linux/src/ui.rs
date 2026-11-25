@@ -495,7 +495,7 @@ fn apply_settings(ui: &Ui) {
     let custom = (!cfg.logo_file.is_empty()).then(|| gdk::Texture::from_filename(&cfg.logo_file).ok()).flatten();
     match custom {
         Some(t) => ui.logo.set_paintable(Some(&t)),
-        None => ui.logo.set_paintable(Some(&gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../res/logo.png"))).unwrap())),
+        None => ui.logo.set_paintable(Some(&gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../../res/logo.png"))).unwrap())),
     }
     ui.pl.borrow_mut().shuffle = cfg.shuffle;
     apply_audio(ui);
@@ -1099,7 +1099,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     header.pack_end(&menu_button);
 
     let video = video::new(mpv);
-    let logo_tex = gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../res/logo.png"))).unwrap();
+    let logo_tex = gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../../res/logo.png"))).unwrap();
     let logo = gtk::Picture::for_paintable(&logo_tex);
     logo.set_can_shrink(false);
     logo.set_halign(gtk::Align::Center);

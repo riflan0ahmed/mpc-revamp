@@ -243,10 +243,16 @@ pub fn folder_neighbor(path: &str, dir: i64) -> Option<String> {
 
 fn resolve(base: &Path, p: &str) -> String {
     let p = p.trim();
-    if p.contains("://") || Path::new(p).is_absolute() {
-        return p.strip_prefix("file://").map_or(p.to_string(), |s| s.to_string());
+    if let Some(rest) = p.strip_prefix("file://") {
+        // file:///home/x is /home/x; file:///C:/x is C:/x.
+        return if cfg!(windows) { rest.trim_start_matches('/') } else { rest }.to_string();
     }
-    base.join(p.replace('\\', "/")).to_string_lossy().into_owned()
+    if p.contains("://") || Path::new(p).is_absolute() {
+        return p.to_string();
+    }
+    // Playlists made on Windows separate folders with `\`, which is a plain character on Linux.
+    let p = if cfg!(windows) { p.to_string() } else { p.replace('\\', "/") };
+    base.join(p).to_string_lossy().into_owned()
 }
 
 /// Read a playlist file. A .cue sheet is kept as one entry: mpv plays it with its tracks as chapters.
@@ -437,13 +443,14 @@ mod tests {
     #[test]
     fn parse_foreign() {
         let base = Path::new("/m");
+        let at = |p: &str| base.join(p).to_string_lossy().into_owned(); // "/m/p", or "/m\\p" on Windows
         let m3u = parse_m3u("#EXTM3U\n#EXTINF:12,Song\nsub\\a.mp3\n\nb.mp3\n", base);
-        assert_eq!(paths(&m3u), ["/m/sub/a.mp3", "/m/b.mp3"]);
+        assert_eq!(paths(&m3u), [at(if cfg!(windows) { "sub\\a.mp3" } else { "sub/a.mp3" }), at("b.mp3")]);
         assert_eq!((m3u[0].label.as_deref(), m3u[0].duration), (Some("Song"), Some(12.0)));
         let pls = parse_pls("[playlist]\nFile2=/x/2.mp3\nfile1=1.mp3\nTitle1=One\n", base);
-        assert_eq!(paths(&pls), ["/m/1.mp3", "/x/2.mp3"]);
+        assert_eq!(paths(&pls), [at("1.mp3"), "/x/2.mp3".into()]);
         let asx = parse_asx("<asx><entry><title>T &amp; U</title><REF HREF='a.wmv'/></entry><Entry><Ref href=\"http://h/b\"/></Entry></asx>", base);
-        assert_eq!(paths(&asx), ["/m/a.wmv", "http://h/b"]);
+        assert_eq!(paths(&asx), [at("a.wmv"), "http://h/b".into()]);
         assert_eq!(asx[0].label.as_deref(), Some("T & U"));
         assert!(parse_mpcpl("nope\n", base).is_none());
     }

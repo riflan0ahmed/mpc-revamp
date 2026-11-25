@@ -6,7 +6,7 @@ use gtk4::{gio, glib, prelude::*};
 use std::path::PathBuf;
 
 pub const APP_ID: &str = "io.github.mpcrv.Player";
-const ICONS: [(u32, &[u8]); 3] = [(48, include_bytes!("../res/icons/48.png")), (128, include_bytes!("../res/icons/128.png")), (256, include_bytes!("../res/icons/256.png"))];
+const ICONS: [(u32, &[u8]); 3] = [(48, include_bytes!("../../res/icons/48.png")), (128, include_bytes!("../../res/icons/128.png")), (256, include_bytes!("../../res/icons/256.png"))];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
