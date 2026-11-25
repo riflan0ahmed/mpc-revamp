@@ -169,6 +169,7 @@ the GTK side of key bindings. The app itself is a thin `main.rs` over the `mpc_r
 | `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations), shared with the future Windows app |
 | `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
 | `.github/workflows/` | GitHub Actions: the Flatpak release build and the Claude review |
+| `ARCHITECTURE.md` | How the code fits together: diagrams of the crates and files, for newcomers to Rust |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
 | `CLAUDE.md` | Project notes and conventions |
 

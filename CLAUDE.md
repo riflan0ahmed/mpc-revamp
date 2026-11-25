@@ -15,6 +15,8 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
     The GTK crate re-exports its modules (`mpc_rv::config` etc.).
   - `mpc-rv/res/` — icons, logo, translations (PO), shaders; shared by both crates.
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
+- `ARCHITECTURE.md` — diagrams of how the crates and files connect, for readers new to Rust. Update it
+  when a source file is added, removed or moved, or when one starts or stops using another.
 - Tests: unit tests inline (`#[cfg(test)] mod tests`) for private details; integration tests in
   `mpc-rv/core/tests/` for the `mpc_core` library and `mpc-rv/tests/` for the `mpc_rv` library
   (`src/lib.rs`; `main.rs` stays thin). Run them all with `cargo test --workspace`.
