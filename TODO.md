@@ -164,22 +164,48 @@ Each phase ends with a build that runs, then stops for review.
       file associations, After Playback
 
 ## Phase 11 — Windows app (native, not GTK)
-A separate frontend with a modern Windows look, sharing `mpc-core` with the Linux app.
+A separate frontend with a modern Windows look, sharing `mpc-core` with the Linux app. Split into
+steps; each ends with something that builds and runs, then stops for review. From 11.2 on, every step
+needs testing on a real Windows machine.
+
+### 11.1 — Core ready for Windows
 - [x] Split the UI-free code into the `mpc-core` crate (`mpc-rv/core/`): playlist, commands, config,
       command line, subtitles, i18n, and `paths` in place of GLib's folder lookups
 - [x] Rename the app to MPC-RV (the command, crate, folders and app ID stay `mpc-rv`)
 - [x] Move the mpv control code into the core (`player`): mpv start-up, property/command helpers, the
       settings as mpv options (audio, subtitles, video, Video Frame, Pan&Scan), track cycling
-- [ ] Check that `mpc-core` builds for Windows (`x86_64-pc-windows-msvc`), and build it in CI on a
-      Windows runner
-- [ ] New `mpc-rv/windows/` crate: Win32 window through the `windows` crate, mpv drawing into it
-      (`wid`), dark mode and Mica on Windows 11
-- [ ] Menus, key bindings and the context menu from the shared command table
-- [ ] Playlist panel, Options and the other dialogs (port from MPC-HC's `mpc-hc.rc`)
-- [ ] Single instance; optionally the `WM_COPYDATA` API (`MpcApi.h`) for compatibility
-- [ ] Settings in `%APPDATA%\mpc-rv\`, translations and shaders next to the exe
-- [ ] File associations, installer (bundles `libmpv-2.dll`)
-- [ ] Test on a real Windows 10 and 11 machine
+- [ ] Decide how to link libmpv on Windows (`libmpv-2.dll` and its import library, e.g. from the
+      shinchiro mpv-winbuild builds) and the toolchain (`x86_64-pc-windows-msvc` or `-gnu`)
+- [ ] `mpc-core` builds and its tests pass for Windows, in CI on a GitHub Windows runner
+
+### 11.2 — Video plays
+- [ ] New `mpc-rv/windows/` crate: a Win32 window through the `windows` crate, mpv drawing into it
+      (`wid`), opening the file from the command line
+- [ ] Windows 11 look: dark title bar following the system theme, Mica background; plain fallback
+      on Windows 10
+- [ ] Windows CI builds the app
+
+### 11.3 — Controls
+- [ ] Menu bar and context menu from the shared command table, with translations
+- [ ] Key bindings and mouse actions (the defaults use GDK key names; map them to Windows keys)
+- [ ] Seek bar, toolbar, volume, status bar; fullscreen with the controls auto-hiding
+
+### 11.4 — Panels and dialogs
+- [ ] Playlist panel (list, context menu, drag to reorder)
+- [ ] Options (port from MPC-HC's `mpc-hc.rc`), Open, Go To, Properties, Favorites
+- [ ] Subresync bar, shader editor
+
+### 11.5 — Desktop integration
+- [ ] Single instance (a second launch passes its files to the running player)
+- [ ] Settings in `%APPDATA%\mpc-rv\`; translations and shaders next to the exe
+- [ ] Media keys and the system media controls (SMTC, the Windows counterpart of MPRIS)
+- [ ] Optionally MPC-HC's `WM_COPYDATA` API (`MpcApi.h`) for compatibility with its remote tools
+
+### 11.6 — Shipping
+- [ ] Installer that bundles `libmpv-2.dll` (and a portable .zip)
+- [ ] File associations
+- [ ] GitHub Action: attach the Windows build to each release
+- [ ] Test on real Windows 10 and 11 machines
 
 ## Dropped (Windows-only or obsolete)
 - DirectShow internal/external filter management, filter property pages
