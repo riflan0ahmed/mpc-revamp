@@ -1,6 +1,6 @@
 //! Settings and history: MPC's defaults, the TOML file format, and older or partial files.
 
-use mpc_rv::config::{AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom, to_text};
+use mpc_rv::config::{AfterPlayback, Config, Favorite, History, RepeatMode, TitleBar, VideoFrame, Zoom, to_text, upgrade};
 
 #[test]
 fn defaults_match_mpc() {
@@ -64,4 +64,20 @@ fn positions_and_favorites() {
     let back: History = toml::from_str(&toml::to_string(&h).unwrap()).unwrap();
     assert_eq!(back.favorites, h.favorites);
     assert_eq!(back.position("/m/b.mkv"), Some(10.0));
+}
+
+#[test]
+fn upgrade_moves_old_subtitle_size_defaults() {
+    let new = Config::default().sub_font_size;
+    // Files from 1.0.2 and 1.0.3 saved that version's default; it moves to the current one.
+    for old in [38, 30] {
+        let c: Config = toml::from_str(&format!("sub_font_size = {old}\n")).unwrap();
+        assert_eq!(upgrade(c).sub_font_size, new);
+    }
+    // A size the user picked is kept, and the upgrade runs only once.
+    let c: Config = toml::from_str("sub_font_size = 44\n").unwrap();
+    assert_eq!(upgrade(c).sub_font_size, 44);
+    let c = upgrade(toml::from_str("sub_font_size = 30\n").unwrap());
+    let c = upgrade(Config { sub_font_size: 30, ..c });
+    assert_eq!(c.sub_font_size, 30, "a size chosen after upgrading stays");
 }
