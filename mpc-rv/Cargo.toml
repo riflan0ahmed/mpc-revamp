@@ -1,6 +1,6 @@
 [package]
 name = "mpc-rv"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 description = "Media Player Classic - Home Cinema, rewritten in Rust for Linux"
 license = "GPL-3.0-or-later"
