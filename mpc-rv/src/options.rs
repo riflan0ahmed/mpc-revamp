@@ -355,13 +355,13 @@ fn formats_page() -> gtk::Widget {
         })
         .collect();
     let status = gtk::Label::builder().xalign(0.0).wrap(true).css_classes(["dim-label"]).build();
-    let set = gtk::Button::with_label("Make mpc-rv the default player");
+    let set = gtk::Button::with_label("Make MPC-RV the default player");
     set.connect_clicked({
         let (checks, status) = (checks.clone(), status.clone());
         move |_| {
             let chosen: Vec<Kind> = checks.iter().filter(|(_, b)| b.is_active()).map(|(k, _)| *k).collect();
             status.set_label(&match integration::associate(&chosen) {
-                Ok(n) => format!("mpc-rv now opens {n} file types."),
+                Ok(n) => format!("MPC-RV now opens {n} file types."),
                 Err(e) => format!("Couldn't change the file associations: {e}"),
             });
         }
@@ -376,7 +376,7 @@ fn formats_page() -> gtk::Widget {
         let status = status.clone();
         move |_| {
             status.set_label(&match integration::install() {
-                Ok(()) => "mpc-rv is in the applications menu.".to_string(),
+                Ok(()) => "MPC-RV is in the applications menu.".to_string(),
                 Err(e) => e.to_string(),
             })
         }

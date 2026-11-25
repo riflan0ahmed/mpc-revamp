@@ -151,7 +151,7 @@ impl Mpris {
                     inv.return_value(None);
                 })
                 .property(move |_, _, _, _, p| match p {
-                    "Identity" => "mpc-rv".to_variant(),
+                    "Identity" => "MPC-RV".to_variant(),
                     "DesktopEntry" => "io.github.mpcrv.Player".to_variant(),
                     "SupportedUriSchemes" => vec!["file", "http", "https", "dvd", "bd", "cdda"].to_variant(),
                     "SupportedMimeTypes" => Vec::<String>::new().to_variant(),

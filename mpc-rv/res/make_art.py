@@ -1,6 +1,6 @@
-# mpc-rv artwork:
+# MPC-RV artwork:
 # - the app icon is MPC-HC's "321" icon (so users recognize the player) with a "REVAMP" badge added;
-# - the idle-screen logo shows that same badged icon with the "mpc-rv" name, a "RUST REVAMP" badge
+# - the idle-screen logo shows that same badged icon with the "MPC-RV" name, a "RUST REVAMP" badge
 #   and a tagline, so the running player isn't mistaken for the original MPC-HC.
 #
 #   python3 res/make_art.py <mpc-hc res folder> res
@@ -46,7 +46,7 @@ for size in (48, 128, 256):
 
 
 # Logo (shown centered on the black video area while idle): the badged icon, name, badge and tagline.
-NAME, TAGLINE = "mpc-rv", "Unofficial Media Player Classic rewrite"
+NAME, TAGLINE = "MPC-RV", "Unofficial Media Player Classic rewrite"
 K = 3  # drawn at 3x, saved at 1x
 NAME_FONT, TAG_FONT = ImageFont.truetype(BOLD, 44 * K), ImageFont.truetype(REG, 11 * K)
 _measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))

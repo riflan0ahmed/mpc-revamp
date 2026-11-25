@@ -1,6 +1,6 @@
 //! Playlists: natural sorting, every playlist file format, next/previous with shuffle, edits.
 
-use mpc_rv::playlist::{self, Entry, Playlist, natural_cmp};
+use mpc_core::playlist::{self, Entry, Playlist, natural_cmp};
 
 fn paths(v: &[Entry]) -> Vec<&str> {
     v.iter().map(|e| e.path.as_str()).collect()

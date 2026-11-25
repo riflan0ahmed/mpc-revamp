@@ -2,8 +2,7 @@
 //! History (recent files, positions) lives next to it in `history.toml`, and the last playlist in
 //! `default.mpcpl` (same name as MPC's).
 
-use crate::commands::Binding;
-use gtk4::glib;
+use crate::{commands::Binding, paths};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -279,7 +278,7 @@ impl Default for Config {
             interpolation: false,
             shaders_pre: Vec::new(),
             shaders_post: Vec::new(),
-            snapshot_dir: glib::user_special_dir(glib::UserDirectory::Pictures).unwrap_or_else(glib::home_dir).to_string_lossy().into_owned(),
+            snapshot_dir: paths::pictures_dir().to_string_lossy().into_owned(),
             snapshot_ext: "jpg".into(),
             thumb_rows: 4,
             thumb_cols: 4,
@@ -376,7 +375,7 @@ impl History {
 }
 
 pub fn dir() -> PathBuf {
-    glib::user_config_dir().join("mpc-rv")
+    paths::config_dir().join("mpc-rv")
 }
 
 /// The program was called mpc-rs, then mpc-revamp: move the newest old settings folder over once,
@@ -386,7 +385,7 @@ pub fn migrate_old_dir() {
         return;
     }
     for name in ["mpc-revamp", "mpc-rs"] {
-        let old = glib::user_config_dir().join(name);
+        let old = paths::config_dir().join(name);
         if old.is_dir() {
             if let Err(e) = std::fs::rename(&old, dir()) {
                 eprintln!("{} -> {}: {e}", old.display(), dir().display());

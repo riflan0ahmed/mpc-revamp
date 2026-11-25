@@ -35,7 +35,7 @@ fn main() -> glib::ExitCode {
         let kinds: Vec<Kind> = [(v, Kind::Video), (a, Kind::Audio), (p, Kind::Playlist)].into_iter().filter(|(on, _)| *on).map(|(_, k)| k).collect();
         if !kinds.is_empty() {
             match integration::associate(&kinds) {
-                Ok(n) => println!("mpc-rv now opens {n} file types."),
+                Ok(n) => println!("MPC-RV now opens {n} file types."),
                 Err(e) => eprintln!("File associations: {e}"),
             }
         }

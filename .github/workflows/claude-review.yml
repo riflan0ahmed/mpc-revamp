@@ -58,7 +58,7 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Review this pull request. It's mpc-rv, a Rust (GTK4 + libmpv) rewrite of MPC-HC; CLAUDE.md
+            Review this pull request. It's MPC-RV, a Rust (GTK4 + libmpv) rewrite of MPC-HC; CLAUDE.md
             describes the project and its rules. Read the diff with `gh pr diff`, and open the files it
             touches when you need more context.
 
@@ -117,7 +117,7 @@ jobs:
             - .claude-report/outdated.txt is `cargo update --dry-run --verbose`: "Updating" lines are
               updates Cargo.toml already allows (a plain `cargo update`); "Unchanged ... (available:
               ...)" lines are newer major versions that need a Cargo.toml change.
-            Read mpc-rv/Cargo.toml to tell direct dependencies from indirect ones.
+            Read mpc-rv/Cargo.toml and mpc-rv/core/Cargo.toml to tell direct dependencies from indirect ones.
 
             The report, in this order: vulnerabilities (crate, advisory ID, severity, fixed version,
             what to do); then outdated direct dependencies (current -> latest, semver-compatible or

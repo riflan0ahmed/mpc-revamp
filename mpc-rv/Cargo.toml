@@ -1,13 +1,20 @@
-[package]
-name = "mpc-rv"
+[workspace]
+members = ["core"]
+
+[workspace.package]
 version = "1.0.5"
 edition = "2024"
-description = "Media Player Classic - Home Cinema, rewritten in Rust for Linux"
 license = "GPL-3.0-or-later"
 
+[package]
+name = "mpc-rv"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Media Player Classic - Home Cinema, rewritten in Rust for Linux"
+
 [dependencies]
+mpc-core = { path = "core" }
 gtk4 = { version = "0.11.5", features = ["v4_12"] }
 libmpv2 = "7.0.1"
-serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-toml = "1.2.1"
