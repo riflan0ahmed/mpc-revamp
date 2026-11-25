@@ -95,10 +95,8 @@ struct Ui {
     shaders_on: Cell<bool>,
     /// Recent mpv error messages (the shader editor shows compile errors from here).
     mpv_errors: RefCell<Vec<String>>,
-    /// File > Open Disc, Navigate > Chapters / Titles, Favorites: rebuilt when their contents change.
-    disc_menu: gio::Menu,
+    /// Navigate > Chapters, Favorites: rebuilt when their contents change.
     chapter_menu: gio::Menu,
-    title_menu: gio::Menu,
     fav_menu: gio::Menu,
     nav_sig: RefCell<String>,
     /// Capture bar (View > Capture): device name, record button.
@@ -111,6 +109,9 @@ struct Ui {
     /// The pointer is over the panel / inside the window.
     panel_hover: gtk::EventControllerMotion,
     pointer_in: Cell<bool>,
+    /// Where the last motion event was. GTK repeats motion events at the same spot while the pointer
+    /// rests (e.g. when the panel slides under it), and those mustn't count as moving the mouse.
+    pointer_at: Cell<Option<(f64, f64)>>,
     /// Controls: play/pause (its icon follows the play state), fullscreen.
     play_button: gtk::Button,
     fs_button: gtk::Button,
@@ -552,7 +553,7 @@ fn run_mouse(ui: &Ui, m: Mouse) -> bool {
 fn apply_keys(ui: &Ui) {
     for (c, b) in COMMANDS.iter().zip(ui.bindings.borrow().iter()) {
         if ui.win.lookup_action(c.action).is_some() {
-            let keys: &[&str] = if b.key.is_empty() { &[] } else { &[&b.key] };
+            let keys: &[&str] = if b.key.is_empty() || commands::is_dvd(c.action) { &[] } else { &[&b.key] };
             ui.app.set_accels_for_action(&format!("win.{}", c.action), keys);
         }
     }
@@ -761,7 +762,7 @@ fn play(ui: &Ui, idx: usize) {
     ui.plbar.refresh();
 }
 
-/// Navigate > Chapters / Titles: rebuilt when the file's chapters or disc titles change.
+/// Navigate > Chapters: rebuilt when the file's chapters change.
 fn update_nav_menus(ui: &Ui) {
     let chapters: Vec<(i64, String)> = (0..prop::<i64>(ui.mpv, "chapter-list/count").unwrap_or(0))
         .map(|i| {
@@ -770,25 +771,16 @@ fn update_nav_menus(ui: &Ui) {
             (i, format!("{} - {name}", hms(t)))
         })
         .collect();
-    let titles: Vec<(i64, String)> = (0..prop::<i64>(ui.mpv, "disc-titles/count").unwrap_or(0))
-        .map(|i| {
-            let id = prop::<i64>(ui.mpv, &format!("disc-titles/{i}/id")).unwrap_or(i);
-            let len = prop::<f64>(ui.mpv, &format!("disc-titles/{i}/length")).unwrap_or(0.0);
-            (id, format!("Title {} ({})", id + 1, hms(len)))
-        })
-        .collect();
-    let sig = format!("{chapters:?}{titles:?}");
+    let sig = format!("{chapters:?}");
     if *ui.nav_sig.borrow() == sig {
         return;
     }
     *ui.nav_sig.borrow_mut() = sig;
-    for (menu, items, action) in [(&ui.chapter_menu, &chapters, "win.chapter"), (&ui.title_menu, &titles, "win.disc-title")] {
-        menu.remove_all();
-        for (i, label) in items {
-            let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
-            item.set_action_and_target_value(Some(action), Some(&i.to_string().to_variant()));
-            menu.append_item(&item);
-        }
+    ui.chapter_menu.remove_all();
+    for (i, label) in chapters {
+        let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
+        item.set_action_and_target_value(Some("win.chapter"), Some(&i.to_string().to_variant()));
+        ui.chapter_menu.append_item(&item);
     }
 }
 
@@ -817,19 +809,6 @@ fn open_channel(ui: &Ui, name: &str) {
 }
 
 /// File > Open Disc: the discs and drives currently present.
-fn refresh_discs(ui: &Ui) {
-    ui.disc_menu.remove_all();
-    let discs = dialogs::discs();
-    if discs.is_empty() {
-        ui.disc_menu.append(Some("(no disc)"), Some("win.no-op"));
-    }
-    for (label, url) in discs {
-        let item = gio::MenuItem::new(Some(&label.replace('_', "__")), None);
-        item.set_action_and_target_value(Some("win.open-disc"), Some(&url.to_variant()));
-        ui.disc_menu.append_item(&item);
-    }
-}
-
 /// The Favorites menu: Add / Organize, then the saved entries.
 fn refresh_favorites(ui: &Ui) {
     ui.fav_menu.remove_all();
@@ -1226,9 +1205,13 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     // --- widgets ---
     let recent = gio::Menu::new();
     let track_menus = [gio::Menu::new(), gio::Menu::new(), gio::Menu::new()];
-    let nav_menus = NavMenus { disc: gio::Menu::new(), chapters: gio::Menu::new(), titles: gio::Menu::new(), favorites: gio::Menu::new() };
+    let nav_menus = NavMenus { chapters: gio::Menu::new(), favorites: gio::Menu::new() };
     let model = menu_model(&recent, &track_menus, &nav_menus);
-    let menubar = gtk::PopoverMenuBar::from_model(Some(&model));
+    // GNOME-style header bar: the title (the file name), the window buttons and one main menu
+    // button with every menu (F10 opens it).
+    let menu_button = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&model).primary(true).tooltip_text(tr("Main Menu")).focusable(false).build();
+    let header = gtk::HeaderBar::new();
+    header.pack_end(&menu_button);
 
     let video = video::new(mpv);
     let logo_tex = gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!("../res/logo.png"))).unwrap();
@@ -1291,8 +1274,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
          #mpc-panel .mpc-seek > trough > slider { opacity: 0; transition: opacity 150ms; }\n\
          #mpc-panel .mpc-seek:hover > trough > slider { opacity: 1; }\n\
          #mpc-panel .mpc-controls { padding: 2px 6px 4px 6px; }\n\
-         #mpc-panel .mpc-time { margin-left: 8px; font-size: 0.95em; }\n\
-         menubar > item:selected { color: @theme_fg_color; box-shadow: inset 0 -3px @theme_fg_color; }",
+         #mpc-panel .mpc-time { margin-left: 8px; font-size: 0.95em; }",
     );
     gtk::style_context_add_provider_for_display(&WidgetExt::display(&win), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
@@ -1362,10 +1344,11 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
     navigation.append(&nav_head);
     navigation.append(&gtk::ScrolledWindow::builder().min_content_height(140).max_content_height(140).child(&channel_list).build());
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    for w in [menubar.upcast_ref::<gtk::Widget>(), paned.upcast_ref(), resync.widget.upcast_ref(), capture.upcast_ref(), navigation.upcast_ref(), info.upcast_ref(), stats.upcast_ref()] {
+    for w in [paned.upcast_ref::<gtk::Widget>(), resync.widget.upcast_ref(), capture.upcast_ref(), navigation.upcast_ref(), info.upcast_ref(), stats.upcast_ref()] {
         vbox.append(w);
     }
     win.set_child(Some(&vbox));
+    win.set_titlebar(Some(&header));
     // The seek bar, controls and status are in a panel over the bottom of the video, as in web
     // players: it slides up while the mouse is in use (and while paused in a window).
     let fs_panel = gtk::Box::builder().orientation(gtk::Orientation::Vertical).name("mpc-panel").build();
@@ -1452,7 +1435,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         pointer: Cell::new((0.0, 0.0)),
         logo,
         bars: vec![
-            ("view-captionmenu", menubar.upcast()),
+            ("view-captionmenu", header.upcast()),
             ("view-information", info.clone().upcast()),
             ("view-statistics", stats.clone().upcast()),
             ("view-seeker", seek.clone().upcast()),
@@ -1496,9 +1479,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         zoomed_for: RefCell::new(None),
         shaders_on: Cell::new(true),
         mpv_errors: RefCell::new(Vec::new()),
-        disc_menu: nav_menus.disc,
         chapter_menu: nav_menus.chapters,
-        title_menu: nav_menus.titles,
         fav_menu: nav_menus.favorites,
         nav_sig: RefCell::new(String::new()),
         capture_label,
@@ -1507,6 +1488,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         fs_revealer: fs_revealer.clone(),
         panel_hover,
         pointer_in: Cell::new(false),
+        pointer_at: Cell::new(None),
         play_button,
         fs_button,
         jobs,
@@ -1518,7 +1500,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
 
     add_actions(app, &ui);
     apply_settings(&ui);
-    refresh_discs(&ui);
     refresh_favorites(&ui);
     refresh_channels(&ui);
     ui.channel_list.connect_row_activated({
@@ -1531,15 +1512,6 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         }
     });
     ui.capture_label.set_label("No capture device is open (File > Open Device).");
-    // Keep File > Open Disc current as discs come and go.
-    let monitor = gio::VolumeMonitor::get();
-    for signal in ["mount-added", "mount-removed", "drive-changed"] {
-        let ui = ui.clone();
-        monitor.connect_local(signal, false, move |_| {
-            refresh_discs(&ui);
-            None
-        });
-    }
     let _ = mpv.set_property("volume", ui.cfg.borrow().volume as i64);
     win.connect_close_request({
         let ui = ui.clone();
@@ -1688,13 +1660,17 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         let ui = ui.clone();
         move |_| {
             ui.pointer_in.set(false);
+            ui.pointer_at.set(None);
             update_fs_reveal(&ui);
         }
     });
     motion.connect_motion({
         let ui = ui.clone();
-        move |_, _, y| {
+        move |_, x, y| {
             ui.pointer_in.set(true);
+            if ui.pointer_at.replace(Some((x, y))) == Some((x, y)) {
+                return;
+            }
             ui.last_motion.set(Instant::now());
             ui.video.set_cursor(None);
             if ui.win.is_fullscreen() && y > ui.win.height() as f64 - 150.0 {
@@ -2036,11 +2012,9 @@ fn after_choice(action: &str) -> AfterPlayback {
     }
 }
 
-/// Menus whose contents change (see `refresh_discs`, `update_nav_menus`, `refresh_favorites`).
+/// Menus whose contents change (see `update_nav_menus`, `refresh_favorites`).
 struct NavMenus {
-    disc: gio::Menu,
     chapters: gio::Menu,
-    titles: gio::Menu,
     favorites: gio::Menu,
 }
 
@@ -2059,15 +2033,9 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
         ("_Quick Open File...", "win.file-openquick"),
         ("_Open File/URL...", "win.file-openmedia"),
         ("Open Dir_ectory...", "win.open-dir"),
-        ("Open _DVD/BD...", "win.file-opendvdbd"),
         ("Open De_vice...", "win.file-opendevice"),
     ]));
-    file.append_section(None, &{
-        let m = gio::Menu::new();
-        m.append_submenu(Some(tr("Open Dis_c").as_str()), &nav.disc);
-        m.append(Some(tr("Re_open File").as_str()), Some("win.file-reopen"));
-        m
-    });
+    file.append_section(None, &section(&[("Re_open File", "win.file-reopen")]));
     file.append_section(None, &{
         let m = gio::Menu::new();
         m.append_submenu(Some(tr("Recent _Files").as_str()), recent);
@@ -2224,7 +2192,6 @@ fn menu_model(recent: &gio::Menu, tracks: &[gio::Menu; 3], nav: &NavMenus) -> gi
     navigate.append_section(None, &{
         let m = gio::Menu::new();
         m.append_submenu(Some(tr("_Chapters").as_str()), &nav.chapters);
-        m.append_submenu(Some(tr("_Titles").as_str()), &nav.titles);
         m
     });
     root.append_submenu(Some(tr("_Navigate").as_str()), &navigate);

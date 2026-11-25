@@ -189,7 +189,6 @@ fn player_page(w: &Work) -> gtk::Widget {
     let history = check(w, "Keep history of recently opened files", |c| c.keep_history, |c, v| c.keep_history = v);
     let playlist = check(w, "Remember last playlist", |c| c.remember_playlist, |c, v| c.remember_playlist = v);
     let pos = check(w, "Remember File position", |c| c.remember_file_pos, |c, v| c.remember_file_pos = v);
-    let dvd_pos = check(w, "Remember DVD position", |c| c.remember_dvd_pos, |c, v| c.remember_dvd_pos = v);
     let size = check(w, "Remember last window size", |c| c.remember_window_size, |c, v| c.remember_window_size = v);
     let osd = check(w, "Show OSD", |c| c.show_osd, |c, v| c.show_osd = v);
     // Language: "" = the system's, "en" = English, else a PO code. Takes effect at the next start.
@@ -213,7 +212,7 @@ fn player_page(w: &Work) -> gtk::Widget {
         group("Title bar", &[title.upcast_ref(), media_title.upcast_ref()]).upcast_ref(),
         group("Language", &[&row("Language:", &lang, "(after restart)")]).upcast_ref(),
         group("Other", &[osd.upcast_ref()]).upcast_ref(),
-        group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), dvd_pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
+        group("History", &[history.upcast_ref(), &row("Recent files:", &recent, ""), playlist.upcast_ref(), pos.upcast_ref(), size.upcast_ref()]).upcast_ref(),
     ])
 }
 
@@ -672,7 +671,7 @@ impl Keys {
             .iter()
             .zip(work.iter())
             .enumerate()
-            .filter(|(i, (_, o))| *i != idx && same_key(&b.key, &o.key))
+            .filter(|(i, (c, o))| *i != idx && !commands::is_dvd(c.action) && same_key(&b.key, &o.key))
             .map(|(_, (c, _))| c.label)
             .collect();
         self.conflict.set_label(&if others.is_empty() { String::new() } else { format!("{} is also used by: {}", key_label(&b.key), others.join(", ")) });
@@ -690,7 +689,7 @@ fn keys_page(dlg: &gtk::Window, bindings: Vec<Binding>, implemented: Vec<bool>) 
         move |item| {
             let text = search.text().to_lowercase();
             let c = &COMMANDS[index_of(item)];
-            text.is_empty() || c.label.to_lowercase().contains(&text) || c.id.to_string() == text
+            !commands::is_dvd(c.action) && (text.is_empty() || c.label.to_lowercase().contains(&text) || c.id.to_string() == text)
         }
     });
     search.connect_search_changed({
