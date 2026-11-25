@@ -112,6 +112,12 @@ pub struct Binding {
 }
 
 /// Bindings for every command (same order as `COMMANDS`), defaults overridden by the config's `[keys]`.
+/// DVD/Blu-ray commands. Discs are rarely used, so these are hidden: they're not in the menus or
+/// Options > Keys, and their keys are free for other commands.
+pub fn is_dvd(action: &str) -> bool {
+    action == "file-opendvdbd" || action.starts_with("dvd-") || (action.starts_with("navigate-") && action.contains("menu"))
+}
+
 pub fn load(overrides: &BTreeMap<String, Binding>) -> Vec<Binding> {
     COMMANDS.iter().map(|c| overrides.get(c.action).cloned().unwrap_or_else(|| c.default_binding())).collect()
 }
