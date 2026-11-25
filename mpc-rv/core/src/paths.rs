@@ -49,7 +49,7 @@ fn user_dir(text: &str, name: &str, home: &std::path::Path) -> Option<PathBuf> {
     value.starts_with('/').then(|| PathBuf::from(value))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))] // user-dirs.dirs is a Linux file, and the expected paths use `/`
 mod tests {
     use super::*;
 

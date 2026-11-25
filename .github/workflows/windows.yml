@@ -1,0 +1,36 @@
+# Windows build (TODO.md Phase 11): with Rust's MSVC toolchain and the pinned libmpv
+# (installers/windows/get-mpv.ps1), runs the shared core's tests and builds the Windows app.
+# The Linux app (GTK) isn't built here.
+name: Windows
+
+on:
+  push:
+    branches: ["release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get libmpv
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\mpv"
+          ./installers/windows/get-mpv.ps1 -Dir $dir
+          # The linker finds mpv.lib through -L; the tests need libmpv-2.dll on PATH to start.
+          "RUSTFLAGS=-L native=$dir" | Out-File -Append $env:GITHUB_ENV
+          $dir | Out-File -Append $env:GITHUB_PATH
+
+      - name: Test the core
+        working-directory: mpc-rv
+        run: cargo test -p mpc-core --locked
+
+      - name: Build the Windows app
+        working-directory: mpc-rv
+        run: cargo build -p mpc-rv-windows --locked

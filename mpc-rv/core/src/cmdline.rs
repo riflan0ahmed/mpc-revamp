@@ -86,10 +86,12 @@ fn switch_name(arg: &str) -> Option<String> {
         n
     } else {
         let n = arg.strip_prefix('/')?;
+        // On Windows "/name" is always a switch, as in MPC. On Linux it can also be a file path, so it's
+        // a switch only when MPC knows it and no such file exists.
         let known = FLAGS.contains(&n.to_ascii_lowercase().as_str())
             || WITH_ARG.contains(&n.to_ascii_lowercase().as_str())
             || IGNORED.iter().any(|(s, _)| s.eq_ignore_ascii_case(n));
-        if !known || Path::new(arg).exists() {
+        if !cfg!(windows) && (!known || Path::new(arg).exists()) {
             return None;
         }
         n

@@ -53,7 +53,7 @@ In `check` mode, stop here and report.
 1. Ask the user before pushing anything, and say a test PR will be opened and then closed.
 2. Make a branch `test/claude-review-<date>` from the current `release/*` branch (the newest one on
    origin). On it, add a small, clearly marked test change with one obvious bug Claude should
-   catch: for example, a new function in `mpc-rv/src/config.rs` that indexes a `Vec` with an
+   catch: for example, a new function in `mpc-rv/core/src/config.rs` that indexes a `Vec` with an
    unchecked value from a file. Commit it as "TEST: Claude review (do not merge)".
 3. Push it and open a pull request against that release branch, titled
    "TEST: Claude review (do not merge)".

@@ -67,7 +67,7 @@ jobs:
                broken MPC-HC parity, things that stop the app from building or running.
             2. Security: unsafe code, input from files, URLs, playlists, subtitles, the web remote
                (tiny_http) or D-Bus/MPRIS that isn't validated, path traversal, command injection,
-               secrets, and over-broad Flatpak permissions in packaging/.
+               secrets, and over-broad Flatpak permissions in installers/.
             3. Dependencies: if Cargo.toml or Cargo.lock changed, new or updated crates and whether
                they're needed. .claude-report/audit.txt has the `cargo audit` result for this
                branch; mention any advisory, and say whether this PR introduced it.
@@ -117,7 +117,8 @@ jobs:
             - .claude-report/outdated.txt is `cargo update --dry-run --verbose`: "Updating" lines are
               updates Cargo.toml already allows (a plain `cargo update`); "Unchanged ... (available:
               ...)" lines are newer major versions that need a Cargo.toml change.
-            Read mpc-rv/Cargo.toml and mpc-rv/core/Cargo.toml to tell direct dependencies from indirect ones.
+            Read the Cargo.toml files in mpc-rv/core, mpc-rv/linux and mpc-rv/windows to tell direct
+            dependencies from indirect ones.
 
             The report, in this order: vulnerabilities (crate, advisory ID, severity, fixed version,
             what to do); then outdated direct dependencies (current -> latest, semver-compatible or

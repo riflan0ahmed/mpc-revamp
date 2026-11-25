@@ -16,14 +16,15 @@ A map of MPC-RV's Rust code, written for people who haven't read Rust before. Th
 
 ## The big picture
 
-The code is split in two layers. The top layer is what you see: windows, menus, buttons. The bottom
-layer, **mpc-core**, holds the rules and data (playlists, settings, key bindings) and knows nothing
-about windows. That's why a Windows app can sit next to the Linux one later and reuse the same core.
+The code is one repository with a shared core and one app per system (a "monorepo"). The top layer is
+what you see: windows, menus, buttons, written separately for Linux and Windows. The bottom layer,
+**mpc-core**, holds the rules and data (playlists, settings, key bindings) and knows nothing about
+windows, so both apps reuse it.
 
 ```mermaid
 flowchart TB
-    linux["<b>MPC-RV for Linux</b><br/>crate mpc-rv · mpc-rv/src/<br/>window, menus, dialogs, media keys"]
-    windows["<b>MPC-RV for Windows</b> (planned)<br/>native Win32 look · TODO.md Phase 11"]
+    linux["<b>MPC-RV for Linux</b><br/>crate mpc-rv · mpc-rv/linux/<br/>GTK window, menus, dialogs, media keys"]
+    windows["<b>MPC-RV for Windows</b> (in development)<br/>crate mpc-rv-windows · mpc-rv/windows/<br/>native Win32 look · TODO.md Phase 11"]
     core["<b>mpc-core</b> · mpc-rv/core/src/<br/>playlist, settings, commands and keys,<br/>command line, subtitles, translations"]
     gtk["<b>gtk4</b><br/>draws windows and buttons"]
     mpv["<b>libmpv2 → mpv</b><br/>opens, decodes and plays video"]
@@ -46,24 +47,32 @@ flowchart TB
     class windows planned
 ```
 
-An arrow means "uses". The arrows only point down: the core never uses the app or GTK. Both layers
-use mpv: the core starts it and sends it the settings, the app draws its video into the window.
+An arrow means "uses". The arrows only point down: the core never uses an app, GTK or Windows code.
+Both layers use mpv: the core starts it and sends it the settings, each app shows its video. The
+dashed arrow is the Windows app, which is still being built.
 
 ## The folders
 
 ```text
 mpc-rv/
-├── Cargo.toml     workspace + the app crate's settings (the version number lives here)
+├── Cargo.toml     the workspace: lists the three crates below (the version number lives here)
 ├── Cargo.lock     exact library versions
-├── src/           the Linux app (crate mpc-rv)
-├── tests/         tests for the app: discs, desktop entry, keys
-├── core/
-│   ├── Cargo.toml the core crate's settings
-│   ├── src/       shared code (crate mpc-core)
+├── core/          shared code (crate mpc-core)
+│   ├── src/
 │   └── tests/     tests for playlist, settings, commands, command line, subtitles, mpv options
-├── res/           icons, logo, translations (po/), video shaders
+├── linux/         the Linux app (crate mpc-rv, the program mpc-rv)
+│   ├── src/
+│   └── tests/     tests for discs, desktop entry, keys
+├── windows/       the Windows app (crate mpc-rv-windows), in development
+│   └── src/
+├── res/           icons, logo, translations (po/), video shaders; shared
 └── target/        build output, made by cargo, never committed
+
+installers/        one way to install the app per folder: flatpak/, aur/, windows/
 ```
+
+Each crate folder has its own `Cargo.toml`. Running `cargo build`, `cargo run` or `cargo test` in
+`mpc-rv/` covers the core and the Linux app; the Windows app is built on Windows.
 
 Tests live in two places: at the bottom of a file (`mod tests`) for small internal checks, and in the
 `tests/` folders for checks from the outside. `cargo test --workspace` runs them all.
@@ -72,7 +81,7 @@ Tests live in two places: at the bottom of a file (`mod tests`) for small intern
 
 The `lib.rs` files are left out of the diagrams because they only list the other files.
 
-### The app's own files
+### The Linux app's own files
 
 `main.rs` starts the program and hands over to `ui.rs`, the main window, which uses almost every
 other file in the app.
@@ -106,7 +115,7 @@ Each app file on top, the core files it uses below. Inside the core, `config.rs`
 
 ```mermaid
 flowchart TB
-    subgraph APP["mpc-rv · the Linux app (mpc-rv/src/)"]
+    subgraph APP["mpc-rv · the Linux app (mpc-rv/linux/src/)"]
         main["main.rs"]
         ui["ui.rs"]
         options["options.rs"]
@@ -152,7 +161,7 @@ flowchart TB
 
 ### What each file does
 
-**The Linux app** (`mpc-rv/src/`)
+**The Linux app** (`mpc-rv/linux/src/`)
 
 | File | What it does | Outside libraries |
 |---|---|---|
@@ -183,6 +192,12 @@ flowchart TB
 | `paths.rs` | Finds your folders: settings (`~/.config`), Pictures, system data. Replaces GTK's version so the core needs no GTK. | none |
 | `player.rs` | Talks to mpv: starts it with MPC's defaults, turns the settings (audio, subtitles, video, Video Frame, Pan & Scan) into mpv options, and has the small helpers every file uses to read and set mpv properties. | libmpv2 |
 
+**The Windows app** (`mpc-rv/windows/src/`, in development)
+
+| File | What it does | Outside libraries |
+|---|---|---|
+| `main.rs` | For now: reads the command line and the settings, starts mpv (through `player.rs`) and plays the files in mpv's own window. The native Win32 window replaces that in TODO.md Phase 11.2. | libmpv2 |
+
 ## What happens when you open a movie
 
 Running `mpc-rv movie.mp4`, in order:
@@ -210,8 +225,8 @@ Running `mpc-rv movie.mp4`, in order:
 | A default keyboard shortcut or mouse action | `mpc-rv/core/src/commands.rs` |
 | A setting's default value | `mpc-rv/core/src/config.rs` |
 | How a setting is passed to mpv | `mpc-rv/core/src/player.rs` |
-| A menu item, or what a command does | `mpc-rv/src/ui.rs` |
-| A page in the Options window | `mpc-rv/src/options.rs` |
+| A menu item, or what a command does | `mpc-rv/linux/src/ui.rs` |
+| A page in the Options window | `mpc-rv/linux/src/options.rs` |
 | Playlist file formats (`.m3u`, `.pls`, ...) | `mpc-rv/core/src/playlist.rs` |
 | A translation | `mpc-rv/res/po/*.po` |
 | The icon or idle-screen logo | `mpc-rv/res/make_art.py` |

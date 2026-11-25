@@ -83,7 +83,7 @@ in this repository:
 
 ```sh
 git clone https://github.com/riflan0ahmed/mpc-revamp.git
-cd mpc-revamp/packaging/aur
+cd mpc-revamp/installers/aur
 makepkg -si
 ```
 
@@ -113,7 +113,7 @@ If the player is already running, opening another file sends it to that window.
 Install `flatpak` and `flatpak-builder`, then run from the repository root:
 
 ```sh
-packaging/build-flatpak.sh
+installers/build-flatpak.sh
 ```
 
 The script builds `dist/mpc-rv-<version>-x86_64.flatpak`. It bundles MPC-RV with its own libmpv
@@ -157,18 +157,21 @@ cargo test --workspace
 Unit tests sit next to the code they test (`#[cfg(test)] mod tests` at the bottom of a file) and cover
 private details. Integration tests use each crate's public API, the way other code would:
 `mpc-rv/core/tests/` covers playlists and their file formats, subtitles, settings and history, the
-command line, key bindings and the settings as mpv options; `mpc-rv/tests/` covers discs and TV channels, desktop integration and
-the GTK side of key bindings. The app itself is a thin `main.rs` over the `mpc_rv` library
-(`src/lib.rs`), so both kinds of tests can reach the code.
+command line, key bindings and the settings as mpv options; `mpc-rv/linux/tests/` covers discs and TV channels, desktop integration and
+the GTK side of key bindings. The Linux app itself is a thin `main.rs` over the `mpc_rv` library
+(`linux/src/lib.rs`), so both kinds of tests can reach the code.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `mpc-rv/` | The Rust workspace, and the GTK app in it (the `mpc-rv` program) |
-| `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations, starting and configuring mpv), shared with the future Windows app |
-| `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
-| `.github/workflows/` | GitHub Actions: the Flatpak release build and the Claude review |
+| `mpc-rv/` | The Rust workspace: one shared core and one app per system |
+| `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations, starting and configuring mpv), shared by both apps |
+| `mpc-rv/linux/` | The Linux app (GTK4), the `mpc-rv` program |
+| `mpc-rv/windows/` | The Windows app (in development; see Phase 11 in TODO.md) |
+| `mpc-rv/res/` | Icons, logo, translations, video shaders |
+| `installers/` | One folder per way to install the app: the Flatpak recipe (`flatpak/`), the AUR `PKGBUILD` (`aur/`), the Windows libmpv script (`windows/`); plus the desktop entry and AppStream metadata |
+| `.github/workflows/` | GitHub Actions: the Flatpak release build, the Windows build and the Claude review |
 | `ARCHITECTURE.md` | How the code fits together: diagrams of the crates and files, for newcomers to Rust |
 | `TODO.md` | Roadmap and feature checklist, phase by phase |
 | `CLAUDE.md` | Project notes and conventions |

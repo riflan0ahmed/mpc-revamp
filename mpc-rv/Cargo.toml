@@ -1,20 +1,15 @@
+# The MPC-RV workspace: the shared core and one app per system. Each folder is its own crate:
+#   core/     mpc-core: playlist, settings, commands, mpv set-up (no UI, no platform APIs)
+#   linux/    mpc-rv: the Linux app (GTK4)
+#   windows/  mpc-rv-windows: the Windows app (Win32)
+# `cargo build` / `cargo run` / `cargo test` here cover the core and the Linux app; the Windows app is
+# built on Windows with `-p mpc-rv-windows`.
 [workspace]
-members = ["core"]
+members = ["core", "linux", "windows"]
+default-members = ["core", "linux"]
+resolver = "3"
 
 [workspace.package]
 version = "1.0.6"
 edition = "2024"
 license = "GPL-3.0-or-later"
-
-[package]
-name = "mpc-rv"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Media Player Classic - Home Cinema, rewritten in Rust for Linux"
-
-[dependencies]
-mpc-core = { path = "core" }
-gtk4 = { version = "0.11.5", features = ["v4_12"] }
-libmpv2 = "7.0.1"
-serde_json = "1.0.154"
