@@ -1,0 +1,21 @@
+# MPC-RV
+
+> MPC-RV is a free, open-source MPC-HC-style video player for Linux: an unofficial rewrite of Media Player Classic - Home Cinema (MPC-HC) in Rust, with GTK4 for the interface and mpv for playback. It is not made by the MPC-HC developers. License: GPL-3.0-or-later. Maintainer: Riflan Ahmed.
+
+MPC-HC is a Windows program; on Linux it only runs through Wine. MPC-RV is a native Linux app that rebuilds MPC-HC's menus, default keyboard shortcuts and tools. It plays almost any format FFmpeg decodes (MKV, MP4, AVI, WebM, MOV, TS; H.264, HEVC, VP9, AV1) plus network streams.
+
+Features: MPC-HC's default shortcuts, all remappable; a playlist that opens and saves .mpcpl, M3U, PLS and ASX and plays CUE sheets; subtitle styling, delay and the Subresync bar; volume boost up to +300%, normalization, downmix and crossfeed; zoom, pan & scan, rotation and all 22 MPC-HC shaders; DVD and Blu-ray folders and ISO images (titles, no disc menus yet); audio CDs; capture devices; DVB TV (experimental); MPRIS media keys; 42 languages.
+
+Install: a Flatpak for any distribution from the GitHub releases. An AUR package and a .deb are coming; a native Windows version is in development.
+
+## Pages
+
+- [Home](https://riflan0ahmed.github.io/mpc-revamp/): features, install steps and FAQ
+- [Keyboard shortcuts](https://riflan0ahmed.github.io/mpc-revamp/keyboard-shortcuts/): every default shortcut, mouse action and media key
+
+## Project
+
+- [Source code](https://github.com/riflan0ahmed/mpc-revamp)
+- [Releases and downloads](https://github.com/riflan0ahmed/mpc-revamp/releases)
+- [Roadmap and feature checklist](https://github.com/riflan0ahmed/mpc-revamp/blob/main/TODO.md)
+- [Issues](https://github.com/riflan0ahmed/mpc-revamp/issues)

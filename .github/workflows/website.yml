@@ -1,0 +1,35 @@
+# Publishes website/ (the landing page) to GitHub Pages. Runs when a change to website/ reaches
+# main, so the site always describes the released version; can also be run by hand.
+# Served at https://riflan0ahmed.github.io/mpc-revamp/ (the URL follows the repository name).
+# One-time setup by the owner: Settings > Pages > Source: "GitHub Actions".
+name: Website
+
+on:
+  push:
+    branches: [main]
+    paths: ["website/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: website
+      - id: deploy
+        uses: actions/deploy-pages@v5

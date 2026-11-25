@@ -1,5 +1,5 @@
 pkgbase = mpc-rv
-	pkgdesc = Unofficial Rust rewrite of Media Player Classic - Home Cinema, with libmpv and GTK4
+	pkgdesc = MPC-HC-style video player, an unofficial Rust rewrite of Media Player Classic - Home Cinema
 	pkgver = 1.0.6
 	pkgrel = 1
 	url = https://github.com/riflan0ahmed/mpc-revamp

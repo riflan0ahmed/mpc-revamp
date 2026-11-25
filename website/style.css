@@ -1,0 +1,96 @@
+:root {
+  --bg: #16181c; --surface: #1f2228; --line: #2e323a;
+  --text: #e9eaec; --muted: #a3a8b1; --accent: #e8622a; --accent-text: #ff8a55;
+  --code: #0f1114;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f7f8; --surface: #ffffff; --line: #e1e3e7;
+    --text: #17191d; --muted: #5a606b; --accent: #d4541d; --accent-text: #b8450f;
+    --code: #eef0f3;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
+}
+a { color: var(--accent-text); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+header { border-bottom: 1px solid var(--line); }
+header .wrap { display: flex; align-items: center; gap: 24px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; font-size: 19px; }
+nav { margin-left: auto; display: flex; gap: 20px; }
+nav a { color: var(--muted); text-decoration: none; font-size: 15px; }
+nav a:hover { color: var(--text); }
+
+.hero { text-align: center; padding-top: 72px; padding-bottom: 40px; }
+.hero h1 { font-size: clamp(32px, 6vw, 54px); line-height: 1.1; margin: 0 0 18px; letter-spacing: -0.02em; }
+.hero h1 span { color: var(--accent-text); }
+.lead { font-size: clamp(17px, 2.4vw, 20px); color: var(--muted); max-width: 680px; margin: 0 auto 30px; }
+.buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 12px 22px; border-radius: 8px; font-weight: 600;
+  text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--surface);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:hover { filter: brightness(1.1); }
+.note { font-size: 14px; color: var(--muted); margin-top: 16px; }
+
+.shot { margin: 32px auto 0; max-width: 1000px; }
+.shot img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.lead, .note, .intro { overflow-wrap: break-word; }
+
+section { padding: 64px 0; }
+section + section { border-top: 1px solid var(--line); }
+h2 { font-size: clamp(26px, 4vw, 34px); margin: 0 0 12px; letter-spacing: -0.01em; }
+.intro { color: var(--muted); max-width: 720px; margin: 0 0 36px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 16px; }
+.card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 22px; }
+.card h3 { margin: 0 0 8px; font-size: 18px; }
+.card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+.install { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.install h3 { margin: 0 0 4px; font-size: 18px; }
+.status { font-size: 13px; font-weight: 600; color: var(--muted); }
+.status.ready { color: #3fb36b; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; font-size: 14px; line-height: 1.5; margin: 12px 0 0; }
+code { font-family: ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace; }
+p code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+
+details { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 10px; }
+summary { cursor: pointer; padding: 16px 20px; font-weight: 600; }
+details p { margin: 0; padding: 0 20px 18px; color: var(--muted); }
+
+footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+footer p { margin: 4px 0; }
+
+@media (max-width: 640px) {
+  nav a.optional { display: none; }
+  .hero { padding-top: 40px; padding-bottom: 8px; }
+  .buttons .btn { flex: 1 1 100%; text-align: center; }
+  .shot { margin-top: 24px; }
+  .shot img { border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+  .card { padding: 18px; }
+  pre { font-size: 13px; }
+  section { padding: 48px 0; }
+}
+
+/* Keyboard shortcuts page */
+.crumb { font-size: 14px; color: var(--muted); margin: 32px 0 0; }
+.page-head { padding: 16px 0 8px; }
+.page-head h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.02em; }
+.keys { width: 100%; border-collapse: collapse; margin: 0 0 8px; font-size: 15.5px; }
+.keys th, .keys td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.keys th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.keys td:first-child { width: 55%; }
+kbd { font-family: ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace; font-size: 13.5px; background: var(--code);
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 8px; padding: 0; list-style: none; font-size: 15px; }
+.keys-section { padding: 28px 0 0; border: 0; }
+.keys-section h2 { font-size: 22px; margin: 0 0 8px; }

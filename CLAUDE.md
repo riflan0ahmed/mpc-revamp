@@ -21,6 +21,13 @@ Goal: the same features as MPC-HC, except those tied to Windows itself (see "Dro
   - `cargo build`/`run`/`test` in `mpc-rv/` cover the core and the Linux app (`default-members`).
 - `installers/` — one folder per way to install the app: `flatpak/`, `aur/`, `windows/` (later `debian/`,
   `appimage/`).
+- `website/` — the landing page (plain HTML, no build step), published to GitHub Pages at
+  https://riflan0ahmed.github.io/mpc-revamp by `.github/workflows/website.yml` when it changes on `main`. Keep its
+  feature list and install steps in line with the app, and its claims true (check them in the code).
+  When a page changes, update its `<lastmod>` in `website/sitemap.xml` (and, for the home page, the
+  "Page updated" date in its footer). `website/llms.txt` summarizes the app for AI assistants: keep it true too. `website/keyboard-shortcuts/` is
+  generated: after changing `core/src/commands.rs` or adding a command to the app, run
+  `python3 website/make_shortcuts.py` from the repo root.
 - `TODO.md` — the phase plan and feature checklist. Tick items off as they're done.
 - `ARCHITECTURE.md` — diagrams of how the crates and files connect, for readers new to Rust. Update it
   when a source file is added, removed or moved, or when one starts or stops using another.
