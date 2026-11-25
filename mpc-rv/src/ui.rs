@@ -111,6 +111,9 @@ struct Ui {
     /// The pointer is over the panel / inside the window.
     panel_hover: gtk::EventControllerMotion,
     pointer_in: Cell<bool>,
+    /// Where the last motion event was. GTK repeats motion events at the same spot while the pointer
+    /// rests (e.g. when the panel slides under it), and those mustn't count as moving the mouse.
+    pointer_at: Cell<Option<(f64, f64)>>,
     /// Controls: play/pause (its icon follows the play state), fullscreen.
     play_button: gtk::Button,
     fs_button: gtk::Button,
@@ -1507,6 +1510,7 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         fs_revealer: fs_revealer.clone(),
         panel_hover,
         pointer_in: Cell::new(false),
+        pointer_at: Cell::new(None),
         play_button,
         fs_button,
         jobs,
@@ -1688,13 +1692,17 @@ pub fn window(app: &gtk::Application, mpv: &'static Mpv) {
         let ui = ui.clone();
         move |_| {
             ui.pointer_in.set(false);
+            ui.pointer_at.set(None);
             update_fs_reveal(&ui);
         }
     });
     motion.connect_motion({
         let ui = ui.clone();
-        move |_, _, y| {
+        move |_, x, y| {
             ui.pointer_in.set(true);
+            if ui.pointer_at.replace(Some((x, y))) == Some((x, y)) {
+                return;
+            }
             ui.last_motion.set(Instant::now());
             ui.video.set_cursor(None);
             if ui.win.is_fullscreen() && y > ui.win.height() as f64 - 150.0 {
