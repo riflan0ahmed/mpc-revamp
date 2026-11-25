@@ -3,7 +3,7 @@
 //! mpv plays a resynced copy of the file (in the runtime dir), reloaded after every change.
 //! Works for external SRT, WebVTT and ASS/SSA files; embedded subtitles can't be read back from mpv.
 
-use crate::subtitles::{self, Doc, Kind};
+use crate::{player::prop, subtitles::{self, Doc, Kind}};
 use gtk4::{self as gtk, glib, prelude::*};
 use libmpv2::Mpv;
 use std::{
@@ -29,10 +29,6 @@ pub struct Subresync {
 
 fn index_of(item: &glib::Object) -> usize {
     item.downcast_ref::<gtk::StringObject>().unwrap().string().parse().unwrap()
-}
-
-fn prop<T: libmpv2::GetData>(mpv: &Mpv, name: &str) -> Option<T> {
-    mpv.get_property(name).ok()
 }
 
 impl Subresync {

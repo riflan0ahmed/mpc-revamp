@@ -157,7 +157,7 @@ cargo test --workspace
 Unit tests sit next to the code they test (`#[cfg(test)] mod tests` at the bottom of a file) and cover
 private details. Integration tests use each crate's public API, the way other code would:
 `mpc-rv/core/tests/` covers playlists and their file formats, subtitles, settings and history, the
-command line and key bindings; `mpc-rv/tests/` covers discs and TV channels, desktop integration and
+command line, key bindings and the settings as mpv options; `mpc-rv/tests/` covers discs and TV channels, desktop integration and
 the GTK side of key bindings. The app itself is a thin `main.rs` over the `mpc_rv` library
 (`src/lib.rs`), so both kinds of tests can reach the code.
 
@@ -166,7 +166,7 @@ the GTK side of key bindings. The app itself is a thin `main.rs` over the `mpc_r
 | Path | Contents |
 |---|---|
 | `mpc-rv/` | The Rust workspace, and the GTK app in it (the `mpc-rv` program) |
-| `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations), shared with the future Windows app |
+| `mpc-rv/core/` | `mpc-core`: the code with no UI (playlist, commands, settings, command line, subtitles, translations, starting and configuring mpv), shared with the future Windows app |
 | `packaging/` | The Flatpak recipe and build script, the AUR `PKGBUILD`, desktop entry and AppStream metadata |
 | `.github/workflows/` | GitHub Actions: the Flatpak release build and the Claude review |
 | `ARCHITECTURE.md` | How the code fits together: diagrams of the crates and files, for newcomers to Rust |

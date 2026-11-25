@@ -1,4 +1,4 @@
-use mpc_rv::{cmdline, config, i18n, integration, ui};
+use mpc_rv::{cmdline, config, i18n, integration, player, ui};
 use gtk4::{self as gtk, gio, glib, prelude::*};
 use libmpv2::Mpv;
 
@@ -56,35 +56,7 @@ fn main() -> glib::ExitCode {
         .collect();
 
     // ponytail: mpv lives for the whole process; leaked so RenderContext<'static> can live in GTK closures.
-    let mpv: &'static Mpv = Box::leak(Box::new(
-        Mpv::with_initializer(|init| {
-            init.set_property("vo", "libmpv")?;
-            init.set_property("idle", "yes")?;
-            // MPC "after playback: do nothing" = stay on the last frame.
-            init.set_property("keep-open", "yes")?;
-            init.set_property("volume-max", "100")?;
-            // Room for MPC's volume boost (up to +300% = +12.04 dB).
-            init.set_property("volume-gain-max", "13")?;
-            // Auto-loaded subtitles are also looked for in these subfolders (MPC's default paths).
-            init.set_property("sub-file-paths", "subtitles:subs")?;
-            init.set_property("terminal", "yes")?;
-            // Debug knob: MPC_RS_MPV_LOG=all=v (any mpv --msg-level value).
-            init.set_property("msg-level", std::env::var("MPC_RS_MPV_LOG").unwrap_or("all=warn".into()))?;
-            // ponytail: WSLg's llvmpipe renders black with mpv's default rgba16f FBO. Real GPUs keep the default.
-            if std::env::var_os("WSL_DISTRO_NAME").is_some() {
-                init.set_property("fbo-format", "rgba8")?;
-            }
-            Ok(())
-        })
-        .expect("failed to init mpv"),
-    ));
-
-    // Errors arrive as events too, so the shader editor can show compile errors.
-    unsafe extern "C" {
-        fn mpv_request_log_messages(ctx: *mut std::ffi::c_void, min_level: *const std::ffi::c_char) -> std::ffi::c_int;
-    }
-    // SAFETY: the handle is valid for the whole run (mpv is leaked above).
-    unsafe { mpv_request_log_messages(mpv.ctx.as_ptr().cast(), c"error".as_ptr()) };
+    let mpv: &'static Mpv = Box::leak(Box::new(player::create("libmpv").expect("failed to init mpv")));
 
     i18n::init(&config::load().language);
     let app = gtk::Application::builder()

@@ -1,21 +1,10 @@
-//! View > Zoom, Video Frame, Pan&Scan (MPC's `MainFrm.cpp` OnViewZoom / OnViewDefaultVideoFrame /
-//! OnViewPanNScan), and File > Save Thumbnails. mpv does the scaling; this maps MPC's modes onto its
-//! `video-zoom`, `video-unscaled`, `panscan`, `video-scale-*` and `video-pan-*` properties.
+//! View > Zoom (MPC's `MainFrm.cpp` OnViewZoom: the window resized around the video) and File > Save
+//! Thumbnails. Video Frame and Pan&Scan are mpv options only, so they're in `mpc_core::player`.
 
-use crate::config::{VideoFrame, Zoom};
+use crate::{config::Zoom, player::{hms, prop}};
 use gtk4::{self as gtk, cairo, gdk, glib, prelude::*};
 use libmpv2::Mpv;
 use std::{cell::Cell, path::PathBuf, rc::Rc, time::Duration};
-
-fn prop<T: libmpv2::GetData>(mpv: &Mpv, name: &str) -> Option<T> {
-    mpv.get_property(name).ok()
-}
-
-fn set(mpv: &Mpv, name: &str, value: &str) {
-    if let Err(e) = mpv.set_property(name, value) {
-        eprintln!("mpv {name}={value}: {e}");
-    }
-}
 
 /// Resize the window so the video shows at `zoom` (MPC's ZoomVideoWindow). Fit modes use `autofit` %
 /// of the screen. Does nothing in fullscreen or maximized, or before the video size is known.
@@ -40,64 +29,6 @@ pub fn zoom_window(win: &gtk::ApplicationWindow, video: &impl IsA<gtk::Widget>, 
         }
     };
     win.set_default_size((vw * scale + cw).round() as i32, (vh * scale + ch).round() as i32);
-}
-
-/// View > Video Frame.
-pub fn apply_frame(mpv: &Mpv, frame: VideoFrame) {
-    use VideoFrame::*;
-    let (unscaled, zoom, panscan, keepaspect) = match frame {
-        Half => ("yes", -1.0, 0.0, "yes"),
-        Normal => ("yes", 0.0, 0.0, "yes"),
-        Double => ("yes", 1.0, 0.0, "yes"),
-        Stretch => ("no", 0.0, 0.0, "no"),
-        FromInside => ("no", 0.0, 0.0, "yes"),
-        Zoom1 => ("no", 0.0, 1.0 / 3.0, "yes"),
-        Zoom2 => ("no", 0.0, 2.0 / 3.0, "yes"),
-        FromOutside => ("no", 0.0, 1.0, "yes"),
-    };
-    set(mpv, "video-unscaled", unscaled);
-    set(mpv, "video-zoom", &zoom.to_string());
-    set(mpv, "panscan", &panscan.to_string());
-    set(mpv, "keepaspect", keepaspect);
-}
-
-/// MPC's pan & scan state: zoom per axis (1 = none) and position (0..1, 0.5 = centered).
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct PanScan {
-    pub zoom_x: f64,
-    pub zoom_y: f64,
-    pub pos_x: f64,
-    pub pos_y: f64,
-}
-
-impl Default for PanScan {
-    fn default() -> PanScan {
-        PanScan { zoom_x: 1.0, zoom_y: 1.0, pos_x: 0.5, pos_y: 0.5 }
-    }
-}
-
-impl PanScan {
-    /// MPC's OnViewPanNScan: size steps of 2 % (0.2..3), moves of 0.5 % of the zoomed size.
-    pub fn step(&mut self, grow_x: i32, grow_y: i32, move_x: i32, move_y: i32) {
-        let zoom = |z: &mut f64, d: i32| {
-            if d > 0 && *z < 3.0 {
-                *z *= 1.02;
-            } else if d < 0 && *z > 0.2 {
-                *z /= 1.02;
-            }
-        };
-        zoom(&mut self.zoom_x, grow_x);
-        zoom(&mut self.zoom_y, grow_y);
-        self.pos_x = (self.pos_x + move_x as f64 * 0.005 * self.zoom_x).clamp(0.0, 1.0);
-        self.pos_y = (self.pos_y + move_y as f64 * 0.005 * self.zoom_y).clamp(0.0, 1.0);
-    }
-
-    pub fn apply(&self, mpv: &Mpv) {
-        set(mpv, "video-scale-x", &self.zoom_x.to_string());
-        set(mpv, "video-scale-y", &self.zoom_y.to_string());
-        set(mpv, "video-pan-x", &(self.pos_x - 0.5).to_string());
-        set(mpv, "video-pan-y", &(self.pos_y - 0.5).to_string());
-    }
 }
 
 /// File > Save Thumbnails: a `rows` x `cols` sheet `width` pixels wide with a header, like MPC's.
@@ -144,10 +75,6 @@ pub fn save_thumbnails(mpv: &'static Mpv, out: PathBuf, rows: u32, cols: u32, wi
     });
 }
 
-fn hms(t: f64) -> String {
-    let s = t.max(0.0) as u64;
-    format!("{:02}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
-}
 
 fn compose(out: &PathBuf, shots: &[(f64, gdk::gdk_pixbuf::Pixbuf)], (rows, cols, width): (usize, usize, i32), (vw, vh, dur): (i64, i64, f64), title: &str, size: i64) -> Result<PathBuf, String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();

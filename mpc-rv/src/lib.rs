@@ -4,7 +4,7 @@
 //! integration tests in `tests/` can use it. The UI-free modules (settings, playlist, command line,
 //! ...) are in the `mpc-core` crate (`core/`), re-exported here under their old names.
 
-pub use mpc_core::{cmdline, commands, config, i18n, playlist, subtitles};
+pub use mpc_core::{cmdline, commands, config, i18n, player, playlist, subtitles};
 
 pub mod dialogs;
 pub mod dvb;

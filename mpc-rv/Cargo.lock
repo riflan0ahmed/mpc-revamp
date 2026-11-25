@@ -438,6 +438,7 @@ dependencies = [
 name = "mpc-core"
 version = "1.0.5"
 dependencies = [
+ "libmpv2",
  "serde",
  "toml",
 ]
